@@ -1,4 +1,5 @@
 mod ast;
+mod expr;
 
 use ast::{Expression, Operator, Program, Statement};
 use nom::{
