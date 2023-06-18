@@ -13,6 +13,16 @@ use nom::{
     IResult,
 };
 
+// Parens -> Expr
+// Literal | Parens
+// Index
+// Call
+// Prefix
+// Product
+// Sum
+// LTGT
+// EqNotEq
+
 pub enum Expr {
     Value(i64),
     Add(Box<Expr>, Box<Expr>),

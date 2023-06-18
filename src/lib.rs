@@ -1,7 +1,7 @@
 mod ast;
 mod expr;
 
-use ast::{Expression, Operator, Program, Statement};
+use ast::{Expression, Literal, Operator, Program, Statement};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
@@ -15,14 +15,14 @@ use nom::{
 
 fn parse_integer(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     map(digit1, |i: &str| {
-        Expression::Integer(i.parse::<i64>().unwrap())
+        Expression::Literal(Literal::Integer(i.parse::<i64>().unwrap()))
     })(input)
 }
 
 fn parse_boolean(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     map(
         alt((map(tag("true"), |_| true), map(tag("false"), |_| false))),
-        Expression::Boolean,
+        |i| Expression::Literal(Literal::Boolean(i)),
     )(input)
 }
 
@@ -34,7 +34,7 @@ fn parse_string(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
             verify(is_not("\""), |s: &str| !s.is_empty()),
             char('"'),
         ),
-        |i| Expression::String(i),
+        |i| Expression::Literal(Literal::String(i)),
     )(input)
 }
 
@@ -62,7 +62,7 @@ fn identifier(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
 }
 
 fn parse_identifier(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
-    map(identifier, |i| Expression::Identifier(i))(input)
+    map(identifier, |i| Expression::Literal(Literal::Identifier(i)))(input)
 }
 
 fn parse_expression(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
@@ -131,7 +131,8 @@ pub fn parse_program(input: &str) -> IResult<&str, Program, VerboseError<&str>> 
 #[cfg(test)]
 mod tests {
     use crate::ast::{
-        Expression::{Boolean, Identifier, Infix, Integer, Prefix, String},
+        Expression::{Infix, Literal, Prefix},
+        Literal::{Boolean, Identifier, Integer, String},
         Operator,
         Statement::{self, Expression, Let, Return},
     };
@@ -142,15 +143,21 @@ mod tests {
         };
     }
 
+    macro_rules! assert_literal {
+        ($statement: expr, $val: pat $(if $guard:expr)? $(,)?) => {
+            assert_matches!($statement, Expression(Literal($val)))
+        };
+    }
+
     macro_rules! assert_prefix {
         ($statement: expr, $operator: pat, $right: pat) => {
-            assert_matches!($statement, Expression(Prefix($operator, h)) if matches!(h.as_ref(), $right));
+            assert_matches!($statement, Expression(Prefix($operator, h)) if matches!(h.as_ref(), Literal($right)));
         };
     }
 
     macro_rules! assert_infix {
         ($statement: expr, $left: pat, $operator: pat, $right: pat) => {
-            assert_matches!($statement, Expression(Infix(left, $operator, right)) if matches!(left.as_ref(), $left) && matches!(right.as_ref(), $right));
+            assert_matches!($statement, Expression(Infix(left, $operator, right)) if matches!(left.as_ref(), Literal($left)) && matches!(right.as_ref(), Literal($right)));
         };
     }
 
@@ -170,11 +177,11 @@ mod tests {
         "#,
         );
         assert_eq!(program.len(), 5);
-        assert_matches!(&program[0], Expression(Integer(5)));
-        assert_matches!(&program[1], Expression(Boolean(true)));
-        assert_matches!(&program[2], Expression(Boolean(false)));
-        assert_matches!(&program[3], Expression(Identifier("foo")));
-        assert_matches!(&program[4], Expression(String("hello world")));
+        assert_literal!(&program[0], Integer(5));
+        assert_literal!(&program[1], Boolean(true));
+        assert_literal!(&program[2], Boolean(false));
+        assert_literal!(&program[3], Identifier("foo"));
+        assert_literal!(&program[4], String("hello world"));
     }
 
     #[test]
@@ -240,9 +247,9 @@ mod tests {
         );
 
         assert_eq!(program.len(), 3);
-        assert_matches!(&program[0], Let("x", Integer(5)));
-        assert_matches!(&program[1], Let("y", Boolean(true)));
-        assert_matches!(&program[2], Let("foobar", Identifier("y")));
+        assert_matches!(&program[0], Let("x", Literal(Integer(5))));
+        assert_matches!(&program[1], Let("y", Literal(Boolean(true))));
+        assert_matches!(&program[2], Let("foobar", Literal(Identifier("y"))));
     }
 
     #[test]
@@ -256,8 +263,8 @@ mod tests {
         );
 
         assert_eq!(program.len(), 3);
-        assert_matches!(&program[0], Return(Integer(5)));
-        assert_matches!(&program[1], Return(Boolean(true)));
-        assert_matches!(&program[2], Return(Identifier("foobar")));
+        assert_matches!(&program[0], Return(Literal(Integer(5))));
+        assert_matches!(&program[1], Return(Literal(Boolean(true))));
+        assert_matches!(&program[2], Return(Literal(Identifier("foobar"))));
     }
 }

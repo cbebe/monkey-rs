@@ -35,13 +35,18 @@ pub enum Operator {
 }
 
 #[derive(Debug)]
-pub enum Expression<'a> {
+pub enum Literal<'a> {
     Identifier(&'a str),
     Boolean(bool),
     Integer(i64),
     String(&'a str),
     Array(Vec<Expression<'a>>),
     Hash(HashMap<Expression<'a>, Expression<'a>>),
+}
+
+#[derive(Debug)]
+pub enum Expression<'a> {
+    Literal(Literal<'a>),
     Prefix(Operator, Box<Expression<'a>>),
     Index {
         left: Box<Expression<'a>>,
