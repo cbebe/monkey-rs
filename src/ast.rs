@@ -15,7 +15,7 @@ pub struct Program<'a>(pub Vec<Statement<'a>>);
 
 #[derive(Debug)]
 pub enum Statement<'a> {
-    Let(String, Expression<'a>),
+    Let(&'a str, Expression<'a>),
     Return(Expression<'a>),
     Expression(Expression<'a>),
     Block(BlockStatement<'a>),
@@ -39,7 +39,7 @@ pub enum Expression<'a> {
     Identifier(&'a str),
     Boolean(bool),
     Integer(i64),
-    String(String),
+    String(&'a str),
     Array(Vec<Expression<'a>>),
     Hash(HashMap<Expression<'a>, Expression<'a>>),
     Prefix(Operator, Box<Expression<'a>>),
@@ -47,11 +47,7 @@ pub enum Expression<'a> {
         left: Box<Expression<'a>>,
         index: Box<Expression<'a>>,
     },
-    Infix {
-        left: Box<Expression<'a>>,
-        operator: Operator,
-        right: Box<Expression<'a>>,
-    },
+    Infix(Box<Expression<'a>>, Operator, Box<Expression<'a>>),
     Call {
         function: Box<Expression<'a>>,
         args: Vec<Expression<'a>>,
