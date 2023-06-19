@@ -22,16 +22,27 @@ pub enum Statement<'a> {
 }
 
 #[derive(Debug)]
-pub enum Operator {
-    Plus,
-    Minus,
-    Bang,
-    Asterisk,
-    Slash,
+pub enum Operator<'a> {
+    Unary(Unary),
+    Binary(Binary, Expression<'a>),
+}
+
+#[derive(Debug)]
+pub enum Unary {
+    Neg,
+    Not,
+}
+
+#[derive(Debug)]
+pub enum Binary {
+    Add,
+    Sub,
+    Mul,
+    Div,
     LT,
     GT,
     Eq,
-    NotEq,
+    Neq,
 }
 
 #[derive(Debug)]
@@ -47,12 +58,12 @@ pub enum Literal<'a> {
 #[derive(Debug)]
 pub enum Expression<'a> {
     Literal(Literal<'a>),
-    Prefix(Operator, Box<Expression<'a>>),
+    Prefix(Unary, Box<Expression<'a>>),
     Index {
         left: Box<Expression<'a>>,
         index: Box<Expression<'a>>,
     },
-    Infix(Box<Expression<'a>>, Operator, Box<Expression<'a>>),
+    Infix(Box<Expression<'a>>, Binary, Box<Expression<'a>>),
     Call {
         function: Box<Expression<'a>>,
         args: Vec<Expression<'a>>,

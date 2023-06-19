@@ -1,57 +1,42 @@
 mod ast;
-mod expr;
 
-use ast::{Expression, Literal, Operator, Program, Statement};
+use ast::{Binary, Expression, Literal, Operator, Program, Statement};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
     character::complete::{alpha1, alphanumeric1, char, digit1, multispace0, multispace1, one_of},
-    combinator::{map, opt, recognize, verify},
+    combinator::{map, map_res, opt, recognize, verify},
     error::VerboseError,
     multi::{many0, many0_count},
     sequence::{delimited, pair, preceded, separated_pair, terminated},
     IResult,
 };
 
-fn parse_integer(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
-    map(digit1, |i: &str| {
-        Expression::Literal(Literal::Integer(i.parse::<i64>().unwrap()))
-    })(input)
+fn parse_integer(input: &str) -> IResult<&str, Literal, VerboseError<&str>> {
+    map_res(digit1, |int: &str| int.parse::<i64>().map(Literal::Integer))(input)
 }
 
-fn parse_boolean(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn parse_boolean(input: &str) -> IResult<&str, Literal, VerboseError<&str>> {
     map(
         alt((map(tag("true"), |_| true), map(tag("false"), |_| false))),
-        |i| Expression::Literal(Literal::Boolean(i)),
+        Literal::Boolean,
     )(input)
 }
 
 // No escaped characters, classic
-fn parse_string(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn parse_string(input: &str) -> IResult<&str, Literal, VerboseError<&str>> {
     map(
         delimited(
             char('"'),
             verify(is_not("\""), |s: &str| !s.is_empty()),
             char('"'),
         ),
-        |i| Expression::Literal(Literal::String(i)),
+        Literal::String,
     )(input)
 }
 
-fn parse_prefix(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
-    map(
-        separated_pair(one_of("-!"), multispace0, parse_expression),
-        |(oper, expr)| {
-            Expression::Prefix(
-                match oper {
-                    '-' => Operator::Minus,
-                    '!' => Operator::Bang,
-                    _ => panic!(),
-                },
-                Box::new(expr),
-            )
-        },
-    )(input)
+fn parse_identifier(input: &str) -> IResult<&str, Literal, VerboseError<&str>> {
+    map(identifier, Literal::Identifier)(input)
 }
 
 fn identifier(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
@@ -61,22 +46,131 @@ fn identifier(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
     ))(input)
 }
 
-fn parse_identifier(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
-    map(identifier, |i| Expression::Literal(Literal::Identifier(i)))(input)
+fn parens(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+    delimited(
+        multispace0,
+        delimited(tag("("), parse_expression, tag(")")),
+        multispace0,
+    )(i)
 }
 
-fn parse_expression(input: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn literal(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     delimited(
         multispace0,
         alt((
-            parse_prefix,
-            parse_string,
-            parse_integer,
-            parse_boolean,
-            parse_identifier,
+            map(
+                alt((parse_integer, parse_boolean, parse_string, parse_identifier)),
+                Expression::Literal,
+            ),
+            parens,
         )),
         multispace0,
-    )(input)
+    )(i)
+}
+
+fn index(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+    todo!("parse the initial, then the index")
+}
+
+fn call(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+    todo!("parse the initial, then the arguments")
+}
+
+fn prefix(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+    let (i, prefixes) = many0(alt((
+        |i| {
+            let i = tag("-")(i)?.0;
+            Ok((i, (Operator::Unary(ast::Unary::Neg))))
+        },
+        |i| {
+            let i = tag("!")(i)?.0;
+            Ok((i, (Operator::Unary(ast::Unary::Not))))
+        },
+    )))(i)?;
+    // TODO: Parse call expressions
+    // let (i, term) = call(i)?;
+    let (i, term) = literal(i)?;
+    Ok((i, fold_exprs(term, prefixes)))
+}
+
+fn mul_div(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+    let (i, initial) = prefix(i)?;
+    let (i, remainder) = many0(alt((
+        |i| {
+            let (i, mul) = preceded(tag("*"), prefix)(i)?;
+            Ok((i, (Operator::Binary(ast::Binary::Mul, mul))))
+        },
+        |i| {
+            let (i, div) = preceded(tag("/"), prefix)(i)?;
+            Ok((i, (Operator::Binary(ast::Binary::Div, div))))
+        },
+    )))(i)?;
+
+    Ok((i, fold_exprs(initial, remainder)))
+}
+
+fn sum(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+    let (i, initial) = mul_div(i)?;
+    let (i, remainder) = many0(alt((
+        |i| {
+            let (i, add) = preceded(tag("+"), mul_div)(i)?;
+            Ok((i, (Operator::Binary(ast::Binary::Add, add))))
+        },
+        |i| {
+            let (i, sub) = preceded(tag("-"), mul_div)(i)?;
+            Ok((i, (Operator::Binary(ast::Binary::Sub, sub))))
+        },
+    )))(i)?;
+
+    Ok((i, fold_exprs(initial, remainder)))
+}
+
+fn lt_gt(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+    let (i, initial) = sum(i)?;
+    let (i, remainder) = many0(alt((
+        |i| {
+            let (i, lt) = preceded(tag("<"), sum)(i)?;
+            Ok((i, (Operator::Binary(ast::Binary::LT, lt))))
+        },
+        |i| {
+            let (i, gt) = preceded(tag(">"), sum)(i)?;
+            Ok((i, (Operator::Binary(ast::Binary::GT, gt))))
+        },
+    )))(i)?;
+
+    Ok((i, fold_exprs(initial, remainder)))
+}
+
+fn fold_exprs<'a>(initial: Expression<'a>, remainder: Vec<Operator<'a>>) -> Expression<'a> {
+    remainder.into_iter().fold(initial, |acc, oper| match oper {
+        Operator::Unary(u) => Expression::Prefix(u, Box::new(acc)),
+        Operator::Binary(b, expr) => Expression::Infix(Box::new(acc), b, Box::new(expr)),
+    })
+}
+
+// Parens -> Expr
+// Literal | Parens
+// Index
+// Call
+// Prefix
+// Product
+// Sum
+// LTGT
+// EqNotEq
+fn parse_expression(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+    let (i, initial) = lt_gt(i)?;
+    let (i, remainder) = many0(alt((
+        |i| {
+            let (i, eq) = preceded(tag("=="), lt_gt)(i)?;
+            Ok((i, (Operator::Binary(ast::Binary::Eq, eq))))
+        },
+        |i| {
+            let (i, neq) = preceded(tag("!="), lt_gt)(i)?;
+            Ok((i, (Operator::Binary(ast::Binary::Neq, neq))))
+        },
+    )))(i)?;
+
+    Ok((i, fold_exprs(initial, remainder)))
 }
 
 fn parse_expression_statement(input: &str) -> IResult<&str, Statement, VerboseError<&str>> {
@@ -133,7 +227,6 @@ mod tests {
     use crate::ast::{
         Expression::{Infix, Literal, Prefix},
         Literal::{Boolean, Identifier, Integer, String},
-        Operator,
         Statement::{self, Expression, Let, Return},
     };
 
@@ -196,14 +289,14 @@ mod tests {
         );
 
         assert_eq!(program.len(), 4);
-        use Operator::{Bang, Minus};
-        assert_prefix!(&program[0], Bang, Integer(5));
-        assert_prefix!(&program[1], Minus, Integer(15));
-        assert_prefix!(&program[2], Bang, Boolean(true));
-        assert_prefix!(&program[3], Bang, Boolean(false));
+        use crate::ast::Unary::{Neg, Not};
+        assert_prefix!(&program[0], Not, Integer(5));
+        assert_prefix!(&program[1], Neg, Integer(15));
+        assert_prefix!(&program[2], Not, Boolean(true));
+        assert_prefix!(&program[3], Not, Boolean(false));
     }
 
-    // #[test]
+    #[test]
     fn test_infix_expressions() {
         let program = parse_program(
             r#"
@@ -221,19 +314,20 @@ mod tests {
         "#,
         );
 
-        assert_eq!(program.len(), 10);
-        use Operator::{Asterisk, Eq, Minus, NotEq, Plus, Slash, GT, LT};
-        assert_infix!(&program[0], Integer(3), Plus, Integer(10));
-        assert_infix!(&program[1], Integer(5), Minus, Integer(5));
-        assert_infix!(&program[2], Integer(5), Asterisk, Integer(5));
-        assert_infix!(&program[3], Integer(5), Slash, Integer(5));
+        dbg!(&program);
+        assert_eq!(program.len(), 11);
+        use crate::ast::Binary::{Add, Div, Eq, Mul, Neq, Sub, GT, LT};
+        assert_infix!(&program[0], Integer(3), Add, Integer(10));
+        assert_infix!(&program[1], Integer(5), Sub, Integer(5));
+        assert_infix!(&program[2], Integer(5), Mul, Integer(5));
+        assert_infix!(&program[3], Integer(5), Div, Integer(5));
         assert_infix!(&program[4], Integer(5), GT, Integer(5));
         assert_infix!(&program[5], Integer(5), LT, Integer(5));
         assert_infix!(&program[6], Integer(5), Eq, Integer(5));
-        assert_infix!(&program[7], Integer(5), NotEq, Integer(5));
+        assert_infix!(&program[7], Integer(5), Neq, Integer(5));
         assert_infix!(&program[8], Boolean(true), Eq, Boolean(true));
         assert_infix!(&program[9], Boolean(false), Eq, Boolean(false));
-        assert_infix!(&program[10], Boolean(true), NotEq, Boolean(false));
+        assert_infix!(&program[10], Boolean(true), Neq, Boolean(false));
     }
 
     #[test]
