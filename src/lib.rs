@@ -1,6 +1,6 @@
 mod ast;
 
-use ast::{Expression, Literal, Operator, Program, Statement};
+use ast::{BlockStatement, Expression, Literal, Operator, Program, Statement};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
@@ -67,9 +67,9 @@ fn literal(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
 fn index(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     let (i, term) = literal(i)?;
     let (i, args) = many0(delimited(
-        char('['),
-        map(parse_expression, Operator::Index),
-        char(']'),
+        multispace0,
+        delimited(char('['), map(parse_expression, Operator::Index), char(']')),
+        multispace0,
     ))(i)?;
     Ok((i, fold_exprs(term, args)))
 }
@@ -77,18 +77,22 @@ fn index(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
 fn call(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     let (i, term) = index(i)?;
     let (i, args) = many0(delimited(
-        char('('),
-        |i| {
-            let (i, args) = separated_list0(char(','), parse_expression)(i)?;
-            Ok((i, Operator::Call(args)))
-        },
-        char(')'),
+        multispace0,
+        delimited(
+            char('('),
+            |i| {
+                let (i, args) = separated_list0(char(','), parse_expression)(i)?;
+                Ok((i, Operator::Call(args)))
+            },
+            char(')'),
+        ),
+        multispace0,
     ))(i)?;
     Ok((i, fold_exprs(term, args)))
 }
 
 fn prefix(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
-    let (i, prefixes) = many0(alt((
+    let (i, mut prefixes) = many0(alt((
         |i| {
             let i = char('-')(i)?.0;
             Ok((i, (Operator::Unary(ast::Unary::Neg))))
@@ -99,6 +103,7 @@ fn prefix(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
         },
     )))(i)?;
     let (i, term) = call(i)?;
+    prefixes.reverse();
     Ok((i, fold_exprs(term, prefixes)))
 }
 
@@ -236,7 +241,7 @@ fn parse_statement(input: &str) -> IResult<&str, Statement, VerboseError<&str>> 
 }
 
 pub fn parse_program(input: &str) -> IResult<&str, Program, VerboseError<&str>> {
-    map(many0(parse_statement), Program)(input)
+    map(many0(parse_statement), |s| Program(BlockStatement(s)))(input)
 }
 
 #[cfg(test)]
@@ -295,7 +300,7 @@ mod tests {
     }
 
     fn parse_program(input: &str) -> Vec<Statement> {
-        super::parse_program(input).expect("must parse").1 .0
+        super::parse_program(input).expect("must parse").1 .0 .0
     }
 
     #[test]
@@ -457,5 +462,58 @@ mod tests {
         assert_matches!(&program[0], Return(Literal(Integer(5))));
         assert_matches!(&program[1], Return(Literal(Boolean(true))));
         assert_matches!(&program[2], Return(Literal(Identifier("foobar"))));
+    }
+
+    #[test]
+    fn test_operator_precedence() {
+        let cases = vec![
+            ("a + add(b * c) + d", "((a + add((b * c))) + d)"),
+            ("a + add[b * c] + d", "((a + (add[(b * c)])) + d)"),
+            (
+                "add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))",
+                "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))",
+            ),
+            (
+                "add(a + b + c * d / f + g)",
+                "add((((a + b) + ((c * d) / f)) + g))",
+            ),
+            ("true", "true"),
+            ("false", "false"),
+            ("3 > 5 == false", "((3 > 5) == false)"),
+            ("3 < 5 == true", "((3 < 5) == true)"),
+            ("-a * b", "((-a) * b)"),
+            ("!-a", "(!(-a))"),
+            ("a + b + c", "((a + b) + c)"),
+            ("a + b - c", "((a + b) - c)"),
+            ("a * b * c", "((a * b) * c)"),
+            ("a * b / c", "((a * b) / c)"),
+            ("a + b / c", "(a + (b / c))"),
+            ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
+            ("5 > 4 == 3 < 4", "((5 > 4) == (3 < 4))"),
+            ("5 < 4 != 3 > 4", "((5 < 4) != (3 > 4))"),
+            (
+                "3 + 4 * 5 == 3 * 1 + 4 * 5",
+                "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+            ),
+            ("1 + (2 + 3) + 4", "((1 + (2 + 3)) + 4)"),
+            ("(5 + 5) * 2", "((5 + 5) * 2)"),
+            ("2 / (5 + 5)", "(2 / (5 + 5))"),
+            ("-(5 + 5)", "(-(5 + 5))"),
+            ("!(true == true)", "(!(true == true))"),
+        ];
+
+        for (case, want) in cases {
+            let program = parse_program(case);
+            assert_eq!(program.len(), 1);
+            assert_matches!(&program[0], Expression(expr) if {
+                let prog = expr.to_string();
+                if prog != want {
+                    println!("case: {case}");
+                    println!("got: {prog}");
+                    println!("want: {want}");
+                }
+                prog == want
+            });
+        }
     }
 }
