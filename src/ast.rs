@@ -25,6 +25,8 @@ pub enum Statement<'a> {
 pub enum Operator<'a> {
     Unary(Unary),
     Binary(Binary, Expression<'a>),
+    Call(Vec<Expression<'a>>),
+    Index(Expression<'a>),
 }
 
 #[derive(Debug)]
