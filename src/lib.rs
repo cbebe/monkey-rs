@@ -35,6 +35,35 @@ where
     delimited(char('['), inner, char(']'))
 }
 
+fn squirly<'a, O1, F>(
+    inner: F,
+) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
+where
+    F: Parser<&'a str, O1, VerboseError<&'a str>>,
+{
+    delimited(char('{'), inner, char('}'))
+}
+
+fn keyword0<'a, O1, F>(
+    kw: &'static str,
+    inner: F,
+) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
+where
+    F: Parser<&'a str, O1, VerboseError<&'a str>>,
+{
+    preceded(terminated(tag(kw), multispace0), inner)
+}
+
+fn keyword1<'a, O1, F>(
+    kw: &'static str,
+    inner: F,
+) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
+where
+    F: Parser<&'a str, O1, VerboseError<&'a str>>,
+{
+    preceded(terminated(tag(kw), multispace1), inner)
+}
+
 fn integer(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
     map_res(digit1, |int: &str| int.parse::<i64>().map(Literal::Integer))(i)
 }
@@ -69,10 +98,30 @@ fn ident(i: &str) -> IResult<&str, &str, VerboseError<&str>> {
     ))(i)
 }
 
+fn if_expr(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
+    let (i, cond) = keyword0("if", parens(expr))(i)?;
+    let (i, consequence) = spaced(squirly(block))(i)?;
+    let (i, alternative) = opt(spaced(keyword0("else", squirly(block))))(i)?;
+    Ok((
+        i,
+        Literal::If {
+            condition: Box::new(cond),
+            consequence,
+            alternative,
+        },
+    ))
+}
+
+fn func(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
+    let (i, args) = keyword0("fn", parens(separated_list0(char(','), spaced(ident))))(i)?;
+    let (i, body) = spaced(squirly(block))(i)?;
+    Ok((i, Literal::Function { args, body }))
+}
+
 fn literal(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     spaced(alt((
         map(
-            alt((integer, boolean, string, identifier)),
+            alt((if_expr, func, integer, boolean, string, identifier)),
             Expression::Literal,
         ),
         parens(expr),
@@ -204,10 +253,9 @@ fn expr_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
 
 fn let_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
     map(
-        delimited(
-            terminated(tag("let"), multispace1),
-            separated_pair(ident, spaced(char('=')), expr),
-            char(';'),
+        terminated(
+            keyword1("let", separated_pair(ident, spaced(char('=')), expr)),
+            preceded(multispace0, char(';')),
         ),
         |(ident, expr)| Statement::Let(ident, expr),
     )(i)
@@ -215,11 +263,7 @@ fn let_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
 
 fn return_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
     map(
-        delimited(
-            terminated(tag("return"), multispace1),
-            expr,
-            preceded(multispace0, char(';')),
-        ),
+        terminated(keyword1("return", expr), preceded(multispace0, char(';'))),
         Statement::Return,
     )(i)
 }
@@ -240,8 +284,8 @@ pub fn program(i: &str) -> IResult<&str, Program, VerboseError<&str>> {
 mod tests {
     use crate::ast::{
         self, Binary,
-        Expression::{Call, If, Index, Infix, Literal, Prefix},
-        Literal::{Boolean, Identifier, Integer, String},
+        Expression::{Call, Index, Infix, Literal, Prefix},
+        Literal::{Boolean, Function, Identifier, If, Integer, String},
         Statement::{self, Expression, Let, Return},
     };
 
@@ -280,7 +324,7 @@ mod tests {
             if let Expression(expr) = $statement {
                 assert_infix_expr!(expr, $left, $operator, $right);
             } else {
-                panic!();
+                panic!("not an expression");
             }
         };
     }
@@ -292,7 +336,19 @@ mod tests {
                 assert_eq!(args.len(), $len);
                 $asserts(args);
             } else {
-                panic!();
+                panic!("not a call");
+            }
+        };
+    }
+
+    macro_rules! assert_fn {
+        ($statement: expr, $argc: literal, $len: literal, $asserts: expr) => {
+            if let Expression(Literal(Function { args, body })) = $statement {
+                assert_eq!(args.len(), $argc);
+                assert_eq!(body.0.len(), $len);
+                $asserts(args, body);
+            } else {
+                panic!("not a function");
             }
         };
     }
@@ -393,7 +449,7 @@ mod tests {
             assert_matches!(left.as_ref(), Literal(Identifier("myArray")));
             assert_infix_expr!(index.as_ref(), Integer(1), Add, Integer(1));
         } else {
-            panic!();
+            panic!("not an index");
         }
     }
 
@@ -472,32 +528,77 @@ mod tests {
         );
 
         assert_eq!(program.len(), 2);
-        use Binary::GT;
+        use Binary::LT;
         assert_matches!(
             &program[0],
-            Expression(If {
+            Expression(Literal(If {
                 condition,
                 consequence,
                 alternative: None
-            }) if {
+            })) if {
                 matches!(consequence.0.len(), 1) &&
-                infix_expr_matches!(condition.as_ref(), Identifier("x"), GT, Identifier("y")) &&
+                infix_expr_matches!(condition.as_ref(), Identifier("x"), LT, Identifier("y")) &&
                 matches!(&consequence.0[0], Expression(Literal(Identifier("x"))))
             }
         );
         assert_matches!(
-            &program[0],
-            Expression(If {
+            &program[1],
+            Expression(Literal(If {
                 condition,
                 consequence,
                 alternative: Some(alt),
-            }) if {
+            })) if {
                 matches!(consequence.0.len(), 1) &&
-                infix_expr_matches!(condition.as_ref(), Identifier("x"), GT, Identifier("y")) &&
+                infix_expr_matches!(condition.as_ref(), Identifier("x"), LT, Identifier("y")) &&
                 matches!(&consequence.0[0], Expression(Literal(Identifier("x")))) &&
+                matches!(&alt.0.len(), 1) &&
                 matches!(&alt.0[0], Expression(Literal(Identifier("y"))))
             }
         );
+    }
+
+    #[test]
+    fn test_function_literal() {
+        let program = parse_program(
+            r#"
+            fn(x, y) { x + y; };
+        "#,
+        );
+
+        assert_eq!(program.len(), 1);
+        use Binary::Add;
+        assert_fn!(
+            &program[0],
+            2,
+            1,
+            |args: &Vec<&str>, body: &ast::BlockStatement| {
+                assert_eq!(args[0], "x");
+                assert_eq!(args[1], "y");
+                assert_infix!(&body.0[0], Identifier("x"), Add, Identifier("y"));
+            }
+        );
+    }
+
+    #[test]
+    fn test_function_parameter_parsing() {
+        let program = parse_program(
+            r#"
+            fn(){};
+            fn(x){};
+            fn(x,y,z){};
+        "#,
+        );
+
+        assert_eq!(program.len(), 3);
+        assert_fn!(&program[0], 0, 0, |_, _| {});
+        assert_fn!(&program[1], 1, 0, |args: &Vec<&str>, _| {
+            assert_eq!(args[0], "x");
+        });
+        assert_fn!(&program[2], 3, 0, |args: &Vec<&str>, _| {
+            assert_eq!(args[0], "x");
+            assert_eq!(args[1], "y");
+            assert_eq!(args[2], "z");
+        });
     }
 
     #[test]

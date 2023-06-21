@@ -111,8 +111,13 @@ pub enum Literal<'a> {
     Array(Vec<Expression<'a>>),
     Hash(HashMap<Expression<'a>, Expression<'a>>),
     Function {
-        args: Vec<String>,
+        args: Vec<&'a str>,
         body: BlockStatement<'a>,
+    },
+    If {
+        condition: Box<Expression<'a>>,
+        consequence: BlockStatement<'a>,
+        alternative: Option<BlockStatement<'a>>,
     },
 }
 
@@ -128,11 +133,6 @@ pub enum Expression<'a> {
     Call {
         function: Box<Expression<'a>>,
         args: Vec<Expression<'a>>,
-    },
-    If {
-        condition: Box<Expression<'a>>,
-        consequence: BlockStatement<'a>,
-        alternative: Option<BlockStatement<'a>>,
     },
 }
 
@@ -167,6 +167,17 @@ impl<'a> std::fmt::Display for Expression<'a> {
                 Literal::Function { args, body } => {
                     write!(f, "fn ({}) {{\n{body}\n}}", args.join(", "),)
                 }
+                Literal::If {
+                    condition,
+                    consequence,
+                    alternative,
+                } => {
+                    write!(f, "if ({condition}) {{\n{consequence}\n}}",)?;
+                    if let Some(block) = alternative {
+                        write!(f, " else {{\n{block}\n}}")?;
+                    }
+                    Ok(())
+                }
             },
             Expression::Prefix(oper, expr) => write!(f, "({oper}{expr})"),
             Expression::Index { left, index } => write!(f, "({left}[{index}])"),
@@ -179,17 +190,6 @@ impl<'a> std::fmt::Display for Expression<'a> {
                     .collect::<Vec<String>>()
                     .join(", ")
             ),
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-            } => {
-                write!(f, "if ({condition}) {{\n{consequence}\n}}",)?;
-                if let Some(block) = alternative {
-                    write!(f, " else {{\n{block}\n}}")?;
-                }
-                Ok(())
-            }
         }
     }
 }
