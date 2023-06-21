@@ -1,6 +1,17 @@
+#![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![allow(clippy::implicit_return, clippy::question_mark_used)]
+
 mod ast;
 
-use ast::{BlockStatement, Expression, Literal, Operator, Program, Statement};
+use ast::{
+    Binary::{Add, Div, Eq, Mul, Neq, Sub, GT, LT},
+    BlockStatement, Expression,
+    Literal::{Array, Boolean, Function, Hash, Identifier, If, Integer, String},
+    Operator::{self, Binary, Call, Index, Unary},
+    Program,
+    Statement::{self, Let, Return},
+    Unary::{Neg, Not},
+};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
@@ -12,37 +23,27 @@ use nom::{
     IResult, Parser,
 };
 
-fn spaced<'a, O1, F>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
-where
-    F: Parser<&'a str, O1, VerboseError<&'a str>>,
-{
-    delimited(multispace0, inner, multispace0)
+macro_rules! wrapper {
+    ($name: ident, $left: expr, $right: expr) => {
+        fn $name<'a, O1, F>(
+            inner: F,
+        ) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
+        where
+            F: Parser<&'a str, O1, VerboseError<&'a str>>,
+        {
+            delimited($left, inner, $right)
+        }
+    };
+    ($name: ident, $sep: expr) => {
+        wrapper!($name, $sep, $sep);
+    };
 }
 
-fn parens<'a, O1, F>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
-where
-    F: Parser<&'a str, O1, VerboseError<&'a str>>,
-{
-    delimited(char('('), inner, char(')'))
-}
-
-fn squarely<'a, O1, F>(
-    inner: F,
-) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
-where
-    F: Parser<&'a str, O1, VerboseError<&'a str>>,
-{
-    delimited(char('['), inner, char(']'))
-}
-
-fn squirly<'a, O1, F>(
-    inner: F,
-) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
-where
-    F: Parser<&'a str, O1, VerboseError<&'a str>>,
-{
-    delimited(char('{'), inner, char('}'))
-}
+wrapper!(spaced, multispace0);
+wrapper!(quotes, char('"'));
+wrapper!(parens, char('('), char(')'));
+wrapper!(squarely, char('['), char(']'));
+wrapper!(squirly, char('{'), char('}'));
 
 fn keyword0<'a, O1, F>(
     kw: &'static str,
@@ -64,111 +65,67 @@ where
     preceded(terminated(tag(kw), multispace1), inner)
 }
 
-fn integer(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
-    map_res(digit1, |int: &str| int.parse::<i64>().map(Literal::Integer))(i)
-}
-
-fn boolean(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
-    map(
-        alt((map(tag("true"), |_| true), map(tag("false"), |_| false))),
-        Literal::Boolean,
-    )(i)
-}
-
-fn array(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
-    map(squarely(separated_list0(char(','), expr)), Literal::Array)(i)
-}
-
-fn hash(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
-    map(
-        squirly(|i| {
-            let (i, pairs) = separated_list0(char(','), separated_pair(expr, char(':'), expr))(i)?;
-            Ok((i, pairs.into_iter().collect()))
-        }),
-        Literal::Hash,
-    )(i)
-}
-
-// No escaped characters, classic
-fn string(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
-    map(
-        delimited(
-            char('"'),
-            verify(is_not("\""), |s: &str| !s.is_empty()),
-            char('"'),
-        ),
-        Literal::String,
-    )(i)
-}
-
-fn identifier(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
-    map(ident, Literal::Identifier)(i)
-}
-
-fn ident(i: &str) -> IResult<&str, &str, VerboseError<&str>> {
+fn identifier(i: &str) -> IResult<&str, &str, VerboseError<&str>> {
     recognize(pair(
         alt((alpha1, tag("_"))),
         many0_count(alt((alphanumeric1, tag("_")))),
     ))(i)
 }
 
-fn if_expr(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
-    let (i, cond) = keyword0("if", parens(expr))(i)?;
-    let (i, consequence) = spaced(squirly(block))(i)?;
-    let (i, alternative) = opt(spaced(keyword0("else", squirly(block))))(i)?;
-    Ok((
-        i,
-        Literal::If {
-            condition: Box::new(cond),
-            consequence,
-            alternative,
-        },
-    ))
-}
-
-fn func(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
-    let (i, args) = keyword0("fn", parens(separated_list0(char(','), spaced(ident))))(i)?;
-    let (i, body) = spaced(squirly(block))(i)?;
-    Ok((i, Literal::Function { args, body }))
-}
-
 fn literal(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
-    spaced(alt((
-        map(
-            alt((
-                if_expr, func, array, hash, integer, boolean, string, identifier,
-            )),
-            Expression::Literal,
-        ),
-        parens(expr),
-    )))(i)
+    map(
+        alt((
+            |i| {
+                let (i, cond) = keyword0("if", parens(expr))(i)?;
+                let (i, consequence) = spaced(squirly(block))(i)?;
+                let (i, alternative) = opt(spaced(keyword0("else", squirly(block))))(i)?;
+                Ok((i, If(Box::new(cond), consequence, alternative)))
+            },
+            |i| {
+                let (i, args) =
+                    keyword0("fn", parens(separated_list0(char(','), spaced(identifier))))(i)?;
+                let (i, body) = spaced(squirly(block))(i)?;
+                Ok((i, Function(args, body)))
+            },
+            map(squarely(separated_list0(char(','), expr)), Array),
+            |i| {
+                let (i, pairs) = squirly(separated_list0(
+                    char(','),
+                    separated_pair(expr, char(':'), expr),
+                ))(i)?;
+                Ok((i, Hash(pairs.into_iter().collect())))
+            },
+            map_res(digit1, |int: &str| int.parse::<i64>().map(Integer)),
+            map(recognize(alt((tag("true"), tag("false")))), |b| {
+                Boolean(b == "true")
+            }),
+            // No escaped characters, classic
+            |i| {
+                let (i, s) = quotes(verify(is_not("\""), |s: &str| !s.is_empty()))(i)?;
+                Ok((i, String(s)))
+            },
+            map(identifier, Identifier),
+        )),
+        Expression::Literal,
+    )(i)
 }
 
 fn index(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
-    let (i, term) = literal(i)?;
-    let (i, args) = many0(spaced(squarely(map(expr, Operator::Index))))(i)?;
+    let (i, term) = spaced(alt((literal, parens(expr))))(i)?;
+    let (i, args) = many0(spaced(squarely(map(expr, Index))))(i)?;
     Ok((i, fold_exprs(term, args)))
 }
 
 fn call(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     let (i, term) = index(i)?;
-    let (i, args) = many0(spaced(parens(|i| {
-        let (i, args) = separated_list0(char(','), expr)(i)?;
-        Ok((i, Operator::Call(args)))
-    })))(i)?;
+    let (i, args) = many0(spaced(parens(map(separated_list0(char(','), expr), Call))))(i)?;
     Ok((i, fold_exprs(term, args)))
 }
 
 fn prefix(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     let (i, mut prefixes) = many0(alt((
-        |i| {
-            let i = char('-')(i)?.0;
-            Ok((i, (Operator::Unary(ast::Unary::Neg))))
-        },
-        |i| {
-            let i = char('!')(i)?.0;
-            Ok((i, (Operator::Unary(ast::Unary::Not))))
-        },
+        map(char('-'), |_| Unary(Neg)),
+        map(char('!'), |_| Unary(Not)),
     )))(i)?;
     let (i, term) = call(i)?;
     prefixes.reverse();
@@ -178,14 +135,8 @@ fn prefix(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
 fn mul_div(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     let (i, initial) = prefix(i)?;
     let (i, remainder) = many0(alt((
-        |i| {
-            let (i, mul) = preceded(char('*'), prefix)(i)?;
-            Ok((i, (Operator::Binary(ast::Binary::Mul, mul))))
-        },
-        |i| {
-            let (i, div) = preceded(char('/'), prefix)(i)?;
-            Ok((i, (Operator::Binary(ast::Binary::Div, div))))
-        },
+        map(preceded(char('*'), prefix), |mul| Binary(Mul, mul)),
+        map(preceded(char('/'), prefix), |div| Binary(Div, div)),
     )))(i)?;
 
     Ok((i, fold_exprs(initial, remainder)))
@@ -194,14 +145,8 @@ fn mul_div(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
 fn sum(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     let (i, initial) = mul_div(i)?;
     let (i, remainder) = many0(alt((
-        |i| {
-            let (i, add) = preceded(char('+'), mul_div)(i)?;
-            Ok((i, (Operator::Binary(ast::Binary::Add, add))))
-        },
-        |i| {
-            let (i, sub) = preceded(char('-'), mul_div)(i)?;
-            Ok((i, (Operator::Binary(ast::Binary::Sub, sub))))
-        },
+        map(preceded(char('+'), mul_div), |add| Binary(Add, add)),
+        map(preceded(char('-'), mul_div), |sub| Binary(Sub, sub)),
     )))(i)?;
 
     Ok((i, fold_exprs(initial, remainder)))
@@ -210,57 +155,23 @@ fn sum(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
 fn lt_gt(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     let (i, initial) = sum(i)?;
     let (i, remainder) = many0(alt((
-        |i| {
-            let (i, lt) = preceded(char('<'), sum)(i)?;
-            Ok((i, (Operator::Binary(ast::Binary::LT, lt))))
-        },
-        |i| {
-            let (i, gt) = preceded(char('>'), sum)(i)?;
-            Ok((i, (Operator::Binary(ast::Binary::GT, gt))))
-        },
+        map(preceded(char('<'), sum), |lt| Binary(LT, lt)),
+        map(preceded(char('>'), sum), |gt| Binary(GT, gt)),
     )))(i)?;
+    Ok((i, fold_exprs(initial, remainder)))
+}
 
+fn expr(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+    let (i, initial) = lt_gt(i)?;
+    let (i, remainder) = many0(alt((
+        map(preceded(tag("=="), lt_gt), |eq| Binary(Eq, eq)),
+        map(preceded(tag("!="), lt_gt), |neq| Binary(Neq, neq)),
+    )))(i)?;
     Ok((i, fold_exprs(initial, remainder)))
 }
 
 fn fold_exprs<'a>(initial: Expression<'a>, remainder: Vec<Operator<'a>>) -> Expression<'a> {
-    remainder.into_iter().fold(initial, |acc, oper| match oper {
-        Operator::Unary(u) => Expression::Prefix(u, Box::new(acc)),
-        Operator::Binary(b, expr) => Expression::Infix(Box::new(acc), b, Box::new(expr)),
-        Operator::Call(args) => Expression::Call {
-            function: Box::new(acc),
-            args,
-        },
-        Operator::Index(expr) => Expression::Index {
-            left: Box::new(acc),
-            index: Box::new(expr),
-        },
-    })
-}
-
-// Parens -> Expr
-// Literal | Parens
-// Index
-// Call
-// Prefix
-// Product
-// Sum
-// LTGT
-// EqNotEq
-fn expr(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
-    let (i, initial) = lt_gt(i)?;
-    let (i, remainder) = many0(alt((
-        |i| {
-            let (i, eq) = preceded(tag("=="), lt_gt)(i)?;
-            Ok((i, (Operator::Binary(ast::Binary::Eq, eq))))
-        },
-        |i| {
-            let (i, neq) = preceded(tag("!="), lt_gt)(i)?;
-            Ok((i, (Operator::Binary(ast::Binary::Neq, neq))))
-        },
-    )))(i)?;
-
-    Ok((i, fold_exprs(initial, remainder)))
+    remainder.into_iter().fold(initial, |acc, op| op.fold(acc))
 }
 
 fn expr_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
@@ -270,17 +181,17 @@ fn expr_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
 fn let_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
     map(
         terminated(
-            keyword1("let", separated_pair(ident, spaced(char('=')), expr)),
+            keyword1("let", separated_pair(identifier, spaced(char('=')), expr)),
             preceded(multispace0, char(';')),
         ),
-        |(ident, expr)| Statement::Let(ident, expr),
+        |(ident, expr)| Let(ident, expr),
     )(i)
 }
 
 fn return_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
     map(
         terminated(keyword1("return", expr), preceded(multispace0, char(';'))),
-        Statement::Return,
+        Return,
     )(i)
 }
 
@@ -343,7 +254,7 @@ mod tests {
 
     macro_rules! assert_call {
         ($statement: expr, $fn: literal, $len: literal, $asserts: expr) => {
-            if let Expression(Call { function, args }) = $statement {
+            if let Expression(Call(function, args)) = $statement {
                 assert_matches!(function.as_ref(), Literal(Identifier($fn)));
                 assert_eq!(args.len(), $len);
                 $asserts(args);
@@ -355,7 +266,7 @@ mod tests {
 
     macro_rules! assert_fn {
         ($statement: expr, $argc: literal, $len: literal, $asserts: expr) => {
-            if let Expression(Literal(Function { args, body })) = $statement {
+            if let Expression(Literal(Function(args, body))) = $statement {
                 assert_eq!(args.len(), $argc);
                 assert_eq!(body.0.len(), $len);
                 $asserts(args, body);
@@ -482,25 +393,25 @@ mod tests {
         let program = parse_program("if (x < y) { x }; if (x < y) { x } else { y };", 2);
         assert_matches!(
             &program[0],
-            Expression(Literal(If {
-                condition,
+            Expression(Literal(If (
+                cond,
                 consequence,
-                alternative: None
-            })) if {
+                None
+            ))) if {
                 matches!(consequence.0.len(), 1) &&
-                infix_expr_matches!(condition.as_ref(), Identifier("x"), LT, Identifier("y")) &&
+                infix_expr_matches!(cond.as_ref(), Identifier("x"), LT, Identifier("y")) &&
                 matches!(&consequence.0[0], Expression(Literal(Identifier("x"))))
             }
         );
         assert_matches!(
             &program[1],
-            Expression(Literal(If {
-                condition,
+            Expression(Literal(If (
+                cond,
                 consequence,
-                alternative: Some(alt),
-            })) if {
+                Some(alt),
+            ))) if {
                 matches!(consequence.0.len(), 1) &&
-                infix_expr_matches!(condition.as_ref(), Identifier("x"), LT, Identifier("y")) &&
+                infix_expr_matches!(cond.as_ref(), Identifier("x"), LT, Identifier("y")) &&
                 matches!(&consequence.0[0], Expression(Literal(Identifier("x")))) &&
                 matches!(&alt.0.len(), 1) &&
                 matches!(&alt.0[0], Expression(Literal(Identifier("y"))))

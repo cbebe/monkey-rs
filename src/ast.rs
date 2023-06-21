@@ -44,10 +44,10 @@ pub enum Statement<'a> {
 impl<'a> std::fmt::Display for Statement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Statement::Let(ident, expr) => write!(f, "let {ident} = {expr}"),
-            Statement::Return(expr) => write!(f, "return {expr}"),
-            Statement::Expression(expr) => write!(f, "{expr}"),
-            Statement::Block(body) => write!(f, "{body}"),
+            Self::Let(ident, expr) => write!(f, "let {ident} = {expr}"),
+            Self::Return(expr) => write!(f, "return {expr}"),
+            Self::Expression(expr) => write!(f, "{expr}"),
+            Self::Block(body) => write!(f, "{body}"),
         }
     }
 }
@@ -60,17 +60,31 @@ pub enum Operator<'a> {
     Index(Expression<'a>),
 }
 
+impl<'a> Operator<'a> {
+    pub fn fold(self, acc: Expression<'a>) -> Expression<'a> {
+        match self {
+            Self::Unary(u) => Expression::Prefix(u, Box::new(acc)),
+            Self::Binary(b, expr) => Expression::Infix(Box::new(acc), b, Box::new(expr)),
+            Self::Call(args) => Expression::Call(Box::new(acc), args),
+            Self::Index(expr) => Expression::Index {
+                left: Box::new(acc),
+                index: Box::new(expr),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Unary {
     Neg,
     Not,
 }
 
-impl<'a> std::fmt::Display for Unary {
+impl std::fmt::Display for Unary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unary::Neg => write!(f, "-"),
-            Unary::Not => write!(f, "!"),
+            Self::Neg => write!(f, "-"),
+            Self::Not => write!(f, "!"),
         }
     }
 }
@@ -87,17 +101,17 @@ pub enum Binary {
     Neq,
 }
 
-impl<'a> std::fmt::Display for Binary {
+impl std::fmt::Display for Binary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Binary::Add => write!(f, "+"),
-            Binary::Sub => write!(f, "-"),
-            Binary::Mul => write!(f, "*"),
-            Binary::Div => write!(f, "/"),
-            Binary::LT => write!(f, "<"),
-            Binary::GT => write!(f, ">"),
-            Binary::Eq => write!(f, "=="),
-            Binary::Neq => write!(f, "!="),
+            Self::Add => write!(f, "+"),
+            Self::Sub => write!(f, "-"),
+            Self::Mul => write!(f, "*"),
+            Self::Div => write!(f, "/"),
+            Self::LT => write!(f, "<"),
+            Self::GT => write!(f, ">"),
+            Self::Eq => write!(f, "=="),
+            Self::Neq => write!(f, "!="),
         }
     }
 }
@@ -110,15 +124,53 @@ pub enum Literal<'a> {
     String(&'a str),
     Array(Vec<Expression<'a>>),
     Hash(BTreeMap<Expression<'a>, Expression<'a>>),
-    Function {
-        args: Vec<&'a str>,
-        body: BlockStatement<'a>,
-    },
-    If {
-        condition: Box<Expression<'a>>,
-        consequence: BlockStatement<'a>,
-        alternative: Option<BlockStatement<'a>>,
-    },
+    Function(Vec<&'a str>, BlockStatement<'a>),
+    If(
+        Box<Expression<'a>>,
+        BlockStatement<'a>,
+        Option<BlockStatement<'a>>,
+    ),
+}
+
+impl<'a> std::fmt::Display for Literal<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Identifier(v) => write!(f, "{v}"),
+            Self::Boolean(v) => write!(f, "{v}"),
+            Self::Integer(v) => write!(f, "{v}"),
+            Self::String(v) => write!(f, "{v}"),
+            Self::Array(v) => {
+                write!(
+                    f,
+                    "[{}]",
+                    v.iter()
+                        .map(|elem| elem.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+            }
+            Self::Hash(v) => {
+                write!(
+                    f,
+                    "{{\n{}\n}}",
+                    v.iter()
+                        .map(|(k, v)| format!("{k}: {v},"))
+                        .collect::<Vec<String>>()
+                        .join(",\n")
+                )
+            }
+            Self::Function(args, body) => {
+                write!(f, "fn ({}) {{\n{body}\n}}", args.join(", "),)
+            }
+            Self::If(condition, consequence, alternative) => {
+                write!(f, "if ({condition}) {{\n{consequence}\n}}",)?;
+                if let Some(block) = alternative {
+                    write!(f, " else {{\n{block}\n}}")?;
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -130,59 +182,17 @@ pub enum Expression<'a> {
         index: Box<Expression<'a>>,
     },
     Infix(Box<Expression<'a>>, Binary, Box<Expression<'a>>),
-    Call {
-        function: Box<Expression<'a>>,
-        args: Vec<Expression<'a>>,
-    },
+    Call(Box<Expression<'a>>, Vec<Expression<'a>>),
 }
 
 impl<'a> std::fmt::Display for Expression<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expression::Literal(l) => match l {
-                Literal::Identifier(v) => write!(f, "{v}"),
-                Literal::Boolean(v) => write!(f, "{v}"),
-                Literal::Integer(v) => write!(f, "{v}"),
-                Literal::String(v) => write!(f, "{v}"),
-                Literal::Array(v) => {
-                    write!(
-                        f,
-                        "[{}]",
-                        v.iter()
-                            .map(|elem| elem.to_string())
-                            .collect::<Vec<String>>()
-                            .join(", ")
-                    )
-                }
-                Literal::Hash(v) => {
-                    write!(
-                        f,
-                        "{{\n{}\n}}",
-                        v.iter()
-                            .map(|(k, v)| format!("{k}: {v},"))
-                            .collect::<Vec<String>>()
-                            .join(",\n")
-                    )
-                }
-                Literal::Function { args, body } => {
-                    write!(f, "fn ({}) {{\n{body}\n}}", args.join(", "),)
-                }
-                Literal::If {
-                    condition,
-                    consequence,
-                    alternative,
-                } => {
-                    write!(f, "if ({condition}) {{\n{consequence}\n}}",)?;
-                    if let Some(block) = alternative {
-                        write!(f, " else {{\n{block}\n}}")?;
-                    }
-                    Ok(())
-                }
-            },
-            Expression::Prefix(oper, expr) => write!(f, "({oper}{expr})"),
-            Expression::Index { left, index } => write!(f, "({left}[{index}])"),
-            Expression::Infix(left, oper, right) => write!(f, "({left} {oper} {right})"),
-            Expression::Call { function, args } => write!(
+            Self::Literal(l) => write!(f, "{l}"),
+            Self::Prefix(oper, expr) => write!(f, "({oper}{expr})"),
+            Self::Index { left, index } => write!(f, "({left}[{index}])"),
+            Self::Infix(left, oper, right) => write!(f, "({left} {oper} {right})"),
+            Self::Call(function, args) => write!(
                 f,
                 "{function}({})",
                 args.iter()
