@@ -20,14 +20,14 @@ use nom::{
     error::VerboseError,
     multi::{many0, many0_count, separated_list0},
     sequence::{delimited, pair, preceded, separated_pair, terminated},
-    IResult, Parser,
+    Parser,
 };
+
+type IResult<'a, O1> = nom::IResult<&'a str, O1, VerboseError<&'a str>>;
 
 macro_rules! wrapper {
     ($name: ident, $left: expr, $right: expr) => {
-        fn $name<'a, O1, F>(
-            inner: F,
-        ) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
+        fn $name<'a, O1, F>(inner: F) -> impl FnMut(&'a str) -> IResult<O1>
         where
             F: Parser<&'a str, O1, VerboseError<&'a str>>,
         {
@@ -45,34 +45,28 @@ wrapper!(parens, char('('), char(')'));
 wrapper!(squarely, char('['), char(']'));
 wrapper!(squirly, char('{'), char('}'));
 
-fn keyword0<'a, O1, F>(
-    kw: &'static str,
-    inner: F,
-) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
+fn keyword0<'a, O1, F>(kw: &'static str, inner: F) -> impl FnMut(&'a str) -> IResult<O1>
 where
     F: Parser<&'a str, O1, VerboseError<&'a str>>,
 {
     preceded(terminated(tag(kw), multispace0), inner)
 }
 
-fn keyword1<'a, O1, F>(
-    kw: &'static str,
-    inner: F,
-) -> impl FnMut(&'a str) -> IResult<&'a str, O1, VerboseError<&'a str>>
+fn keyword_stmt<'a, O1, F>(kw: &'static str, inner: F) -> impl FnMut(&'a str) -> IResult<O1>
 where
     F: Parser<&'a str, O1, VerboseError<&'a str>>,
 {
-    preceded(terminated(tag(kw), multispace1), inner)
+    delimited(terminated(tag(kw), multispace1), inner, char(';'))
 }
 
-fn identifier(i: &str) -> IResult<&str, &str, VerboseError<&str>> {
+fn identifier(i: &str) -> IResult<&str> {
     recognize(pair(
         alt((alpha1, tag("_"))),
         many0_count(alt((alphanumeric1, tag("_")))),
     ))(i)
 }
 
-fn literal(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn literal(i: &str) -> IResult<Expression> {
     map(
         alt((
             |i| {
@@ -110,19 +104,19 @@ fn literal(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     )(i)
 }
 
-fn index(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn index(i: &str) -> IResult<Expression> {
     let (i, term) = spaced(alt((literal, parens(expr))))(i)?;
     let (i, args) = many0(spaced(squarely(map(expr, Index))))(i)?;
     Ok((i, fold_exprs(term, args)))
 }
 
-fn call(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn call(i: &str) -> IResult<Expression> {
     let (i, term) = index(i)?;
     let (i, args) = many0(spaced(parens(map(separated_list0(char(','), expr), Call))))(i)?;
     Ok((i, fold_exprs(term, args)))
 }
 
-fn prefix(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn prefix(i: &str) -> IResult<Expression> {
     let (i, mut prefixes) = many0(alt((
         map(char('-'), |_| Unary(Neg)),
         map(char('!'), |_| Unary(Not)),
@@ -132,7 +126,7 @@ fn prefix(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     Ok((i, fold_exprs(term, prefixes)))
 }
 
-fn mul_div(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn mul_div(i: &str) -> IResult<Expression> {
     let (i, initial) = prefix(i)?;
     let (i, remainder) = many0(alt((
         map(preceded(char('*'), prefix), |mul| Binary(Mul, mul)),
@@ -142,7 +136,7 @@ fn mul_div(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     Ok((i, fold_exprs(initial, remainder)))
 }
 
-fn sum(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn sum(i: &str) -> IResult<Expression> {
     let (i, initial) = mul_div(i)?;
     let (i, remainder) = many0(alt((
         map(preceded(char('+'), mul_div), |add| Binary(Add, add)),
@@ -152,7 +146,7 @@ fn sum(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     Ok((i, fold_exprs(initial, remainder)))
 }
 
-fn lt_gt(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn lt_gt(i: &str) -> IResult<Expression> {
     let (i, initial) = sum(i)?;
     let (i, remainder) = many0(alt((
         map(preceded(char('<'), sum), |lt| Binary(LT, lt)),
@@ -161,7 +155,7 @@ fn lt_gt(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     Ok((i, fold_exprs(initial, remainder)))
 }
 
-fn expr(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
+fn expr(i: &str) -> IResult<Expression> {
     let (i, initial) = lt_gt(i)?;
     let (i, remainder) = many0(alt((
         map(preceded(tag("=="), lt_gt), |eq| Binary(Eq, eq)),
@@ -174,36 +168,23 @@ fn fold_exprs<'a>(initial: Expression<'a>, remainder: Vec<Operator<'a>>) -> Expr
     remainder.into_iter().fold(initial, |acc, op| op.fold(acc))
 }
 
-fn expr_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
-    map(terminated(expr, opt(char(';'))), Statement::Expression)(i)
-}
-
-fn let_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
+fn block(i: &str) -> IResult<BlockStatement> {
     map(
-        terminated(
-            keyword1("let", separated_pair(identifier, spaced(char('=')), expr)),
-            preceded(multispace0, char(';')),
-        ),
-        |(ident, expr)| Let(ident, expr),
+        many0(spaced(alt((
+            map(
+                keyword_stmt("let", separated_pair(identifier, spaced(char('=')), expr)),
+                |(ident, expr)| Let(ident, expr),
+            ),
+            map(keyword_stmt("return", expr), Return),
+            map(terminated(expr, opt(char(';'))), Statement::Expression),
+        )))),
+        BlockStatement,
     )(i)
 }
 
-fn return_statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
-    map(
-        terminated(keyword1("return", expr), preceded(multispace0, char(';'))),
-        Return,
-    )(i)
-}
-
-fn statement(i: &str) -> IResult<&str, Statement, VerboseError<&str>> {
-    spaced(alt((let_statement, return_statement, expr_statement)))(i)
-}
-
-fn block(i: &str) -> IResult<&str, BlockStatement, VerboseError<&str>> {
-    map(many0(statement), BlockStatement)(i)
-}
-
-pub fn program(i: &str) -> IResult<&str, Program, VerboseError<&str>> {
+/// # Errors
+/// Nom parser error
+pub fn program(i: &str) -> IResult<Program> {
     map(block, Program)(i)
 }
 
@@ -448,7 +429,7 @@ mod tests {
     #[test]
     fn test_array_literal() {
         let program = parse_program("[]; [1, 2 * 2, 3 + 3]", 2);
-        assert_literal!(&program[0], Array(arr) if arr.len() == 0);
+        assert_literal!(&program[0], Array(arr) if arr.is_empty());
         assert_literal!(&program[1], Array(arr) if {
             arr.len() == 3 &&
             matches!(&arr[0], Literal(Integer(1))) &&
@@ -467,7 +448,7 @@ mod tests {
             "#,
             3,
         );
-        assert_literal!(&program[0], Hash(h) if h.len() == 0);
+        assert_literal!(&program[0], Hash(h) if h.is_empty());
         assert_literal!(&program[1], Hash(arr) if {
             arr.len() == 3 &&
             matches!(&arr[&Literal(String("one"))], Literal(Integer(1))) &&

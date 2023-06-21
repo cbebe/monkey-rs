@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 #[allow(dead_code)]
 pub enum Node<'a> {
     Program(Program<'a>),
@@ -10,17 +8,13 @@ pub enum Node<'a> {
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockStatement<'a>(pub Vec<Statement<'a>>);
 
+fn str_vec(a: &[impl ToString]) -> Vec<String> {
+    a.iter().map(std::string::ToString::to_string).collect()
+}
+
 impl<'a> std::fmt::Display for BlockStatement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.0
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>()
-                .join(";\n")
-        )
+        write!(f, "{}", str_vec(&self.0).join(";\n"))
     }
 }
 
@@ -123,7 +117,7 @@ pub enum Literal<'a> {
     Integer(i64),
     String(&'a str),
     Array(Vec<Expression<'a>>),
-    Hash(BTreeMap<Expression<'a>, Expression<'a>>),
+    Hash(std::collections::BTreeMap<Expression<'a>, Expression<'a>>),
     Function(Vec<&'a str>, BlockStatement<'a>),
     If(
         Box<Expression<'a>>,
@@ -135,19 +129,11 @@ pub enum Literal<'a> {
 impl<'a> std::fmt::Display for Literal<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Identifier(v) => write!(f, "{v}"),
+            Self::String(v) | Self::Identifier(v) => write!(f, "{v}"),
             Self::Boolean(v) => write!(f, "{v}"),
             Self::Integer(v) => write!(f, "{v}"),
-            Self::String(v) => write!(f, "{v}"),
             Self::Array(v) => {
-                write!(
-                    f,
-                    "[{}]",
-                    v.iter()
-                        .map(|elem| elem.to_string())
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                )
+                write!(f, "[{}]", str_vec(v).join(", "))
             }
             Self::Hash(v) => {
                 write!(
@@ -192,14 +178,7 @@ impl<'a> std::fmt::Display for Expression<'a> {
             Self::Prefix(oper, expr) => write!(f, "({oper}{expr})"),
             Self::Index { left, index } => write!(f, "({left}[{index}])"),
             Self::Infix(left, oper, right) => write!(f, "({left} {oper} {right})"),
-            Self::Call(function, args) => write!(
-                f,
-                "{function}({})",
-                args.iter()
-                    .map(|a| a.to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            ),
+            Self::Call(function, args) => write!(f, "{function}({})", str_vec(args).join(", ")),
         }
     }
 }

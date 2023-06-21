@@ -2,6 +2,11 @@
 name = "monkey-rs"
 version = "0.1.0"
 edition = "2021"
+license = "GPL3"
+description = "Writing a compiler in Rust"
+repository = "https://github.com/cbebe/monkey-rs"
+keywords = ["compiler", "ast"]
+categories = ["compiler"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
