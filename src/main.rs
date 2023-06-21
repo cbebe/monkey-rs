@@ -5,6 +5,7 @@ use nom::error::VerboseError;
 
 mod ast;
 mod parser;
+mod code;
 
 #[derive(Debug)]
 enum Error {
