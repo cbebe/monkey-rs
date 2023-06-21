@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[allow(dead_code)]
 pub enum Node<'a> {
@@ -7,7 +7,7 @@ pub enum Node<'a> {
     Expression(Expression<'a>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockStatement<'a>(pub Vec<Statement<'a>>);
 
 impl<'a> std::fmt::Display for BlockStatement<'a> {
@@ -33,7 +33,7 @@ impl<'a> std::fmt::Display for Program<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 pub enum Statement<'a> {
     Let(&'a str, Expression<'a>),
     Return(Expression<'a>),
@@ -60,7 +60,7 @@ pub enum Operator<'a> {
     Index(Expression<'a>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Unary {
     Neg,
     Not,
@@ -75,7 +75,7 @@ impl<'a> std::fmt::Display for Unary {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Binary {
     Add,
     Sub,
@@ -102,14 +102,14 @@ impl<'a> std::fmt::Display for Binary {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Literal<'a> {
     Identifier(&'a str),
     Boolean(bool),
     Integer(i64),
     String(&'a str),
     Array(Vec<Expression<'a>>),
-    Hash(HashMap<Expression<'a>, Expression<'a>>),
+    Hash(BTreeMap<Expression<'a>, Expression<'a>>),
     Function {
         args: Vec<&'a str>,
         body: BlockStatement<'a>,
@@ -121,7 +121,7 @@ pub enum Literal<'a> {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Expression<'a> {
     Literal(Literal<'a>),
     Prefix(Unary, Box<Expression<'a>>),
@@ -147,7 +147,7 @@ impl<'a> std::fmt::Display for Expression<'a> {
                 Literal::Array(v) => {
                     write!(
                         f,
-                        "{}",
+                        "[{}]",
                         v.iter()
                             .map(|elem| elem.to_string())
                             .collect::<Vec<String>>()

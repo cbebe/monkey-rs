@@ -75,6 +75,20 @@ fn boolean(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
     )(i)
 }
 
+fn array(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
+    map(squarely(separated_list0(char(','), expr)), Literal::Array)(i)
+}
+
+fn hash(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
+    map(
+        squirly(|i| {
+            let (i, pairs) = separated_list0(char(','), separated_pair(expr, char(':'), expr))(i)?;
+            Ok((i, pairs.into_iter().collect()))
+        }),
+        Literal::Hash,
+    )(i)
+}
+
 // No escaped characters, classic
 fn string(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
     map(
@@ -121,7 +135,9 @@ fn func(i: &str) -> IResult<&str, Literal, VerboseError<&str>> {
 fn literal(i: &str) -> IResult<&str, Expression, VerboseError<&str>> {
     spaced(alt((
         map(
-            alt((if_expr, func, integer, boolean, string, identifier)),
+            alt((
+                if_expr, func, array, hash, integer, boolean, string, identifier,
+            )),
             Expression::Literal,
         ),
         parens(expr),
@@ -283,10 +299,12 @@ pub fn program(i: &str) -> IResult<&str, Program, VerboseError<&str>> {
 #[cfg(test)]
 mod tests {
     use crate::ast::{
-        self, Binary,
+        self,
+        Binary::{Add, Div, Eq, Mul, Neq, Sub, GT, LT},
         Expression::{Call, Index, Infix, Literal, Prefix},
-        Literal::{Boolean, Function, Identifier, If, Integer, String},
+        Literal::{Array, Boolean, Function, Hash, Identifier, If, Integer, String},
         Statement::{self, Expression, Let, Return},
+        Unary::{Neg, Not},
     };
 
     macro_rules! assert_matches {
@@ -297,13 +315,7 @@ mod tests {
 
     macro_rules! assert_literal {
         ($statement: expr, $val: pat $(if $guard:expr)? $(,)?) => {
-            assert_matches!($statement, Expression(Literal($val)))
-        };
-    }
-
-    macro_rules! assert_prefix {
-        ($statement: expr, $operator: pat, $right: pat) => {
-            assert_matches!($statement, Expression(Prefix($operator, h)) if matches!(h.as_ref(), Literal($right)));
+            assert_matches!($statement, Expression(Literal($val)) $(if $guard)?)
         };
     }
 
@@ -353,22 +365,15 @@ mod tests {
         };
     }
 
-    fn parse_program(input: &str) -> Vec<Statement> {
-        super::program(input).expect("must parse").1 .0 .0
+    fn parse_program(input: &str, len: usize) -> Vec<Statement> {
+        let program = super::program(input).expect("must parse").1 .0 .0;
+        assert_eq!(program.len(), len);
+        program
     }
 
     #[test]
     fn test_literals() {
-        let program = parse_program(
-            r#"
-            5;
-            true;
-            false;
-            foo;
-            "hello world";
-        "#,
-        );
-        assert_eq!(program.len(), 5);
+        let program = parse_program(r#"5; true; false; foo; "hello world";"#, 5);
         assert_literal!(&program[0], Integer(5));
         assert_literal!(&program[1], Boolean(true));
         assert_literal!(&program[2], Boolean(false));
@@ -378,17 +383,12 @@ mod tests {
 
     #[test]
     fn test_prefix_expressions() {
-        let program = parse_program(
-            r#"
-            !5;
-            -15;
-            !true;
-            !false;
-        "#,
-        );
-
-        assert_eq!(program.len(), 4);
-        use crate::ast::Unary::{Neg, Not};
+        macro_rules! assert_prefix {
+            ($statement: expr, $operator: pat, $right: pat) => {
+                assert_matches!($statement, Expression(Prefix($operator, h)) if matches!(h.as_ref(), Literal($right)));
+            };
+        }
+        let program = parse_program("!5; -15; !true; !false;", 4);
         assert_prefix!(&program[0], Not, Integer(5));
         assert_prefix!(&program[1], Neg, Integer(15));
         assert_prefix!(&program[2], Not, Boolean(true));
@@ -397,14 +397,7 @@ mod tests {
 
     #[test]
     fn test_call_expression() {
-        let program = parse_program(
-            r#"
-            add(1, 2 * 3, 4 + 5);
-        "#,
-        );
-
-        assert_eq!(program.len(), 1);
-        use crate::ast::Binary::{Add, Mul};
+        let program = parse_program("add(1, 2 * 3, 4 + 5);", 1);
         assert_call!(&program[0], "add", 3, |args: &Vec<ast::Expression>| {
             assert_matches!(&args[0], Literal(Integer(1)));
             assert_infix_expr!(&args[1], Integer(2), Mul, Integer(3));
@@ -414,16 +407,7 @@ mod tests {
 
     #[test]
     fn test_call_parameter_parsing() {
-        let program = parse_program(
-            r#"
-            add();
-            add(1);
-            mult(1, 2 * 3, 4 + 5);
-        "#,
-        );
-
-        assert_eq!(program.len(), 3);
-        use crate::ast::Binary::{Add, Mul};
+        let program = parse_program(r#"add(); add(1); mult(1, 2 * 3, 4 + 5);"#, 3);
         assert_call!(&program[0], "add", 0, |_| {});
         assert_call!(&program[1], "add", 1, |args: &Vec<ast::Expression>| {
             assert_matches!(&args[0], Literal(Integer(1)));
@@ -437,14 +421,7 @@ mod tests {
 
     #[test]
     fn test_index_expression() {
-        let program = parse_program(
-            r#"
-            myArray[1 + 1];
-        "#,
-        );
-
-        assert_eq!(program.len(), 1);
-        use crate::ast::Binary::Add;
+        let program = parse_program("myArray[1 + 1];", 1);
         if let Expression(Index { left, index }) = &program[0] {
             assert_matches!(left.as_ref(), Literal(Identifier("myArray")));
             assert_infix_expr!(index.as_ref(), Integer(1), Add, Integer(1));
@@ -468,11 +445,9 @@ mod tests {
             true == true;
             false == false;
             true != false;
-        "#,
+            "#,
+            11,
         );
-
-        assert_eq!(program.len(), 11);
-        use crate::ast::Binary::{Add, Div, Eq, Mul, Neq, Sub, GT, LT};
         assert_infix!(&program[0], Integer(3), Add, Integer(10));
         assert_infix!(&program[1], Integer(5), Sub, Integer(5));
         assert_infix!(&program[2], Integer(5), Mul, Integer(5));
@@ -488,15 +463,7 @@ mod tests {
 
     #[test]
     fn test_let_statement() {
-        let program = parse_program(
-            r#"
-            let x = 5;
-            let y = true;
-            let foobar = y;
-        "#,
-        );
-
-        assert_eq!(program.len(), 3);
+        let program = parse_program("let x = 5; let y = true; let foobar = y;", 3);
         assert_matches!(&program[0], Let("x", Literal(Integer(5))));
         assert_matches!(&program[1], Let("y", Literal(Boolean(true))));
         assert_matches!(&program[2], Let("foobar", Literal(Identifier("y"))));
@@ -504,15 +471,7 @@ mod tests {
 
     #[test]
     fn test_return_statement() {
-        let program = parse_program(
-            r#"
-            return 5;
-            return true;
-            return foobar;
-        "#,
-        );
-
-        assert_eq!(program.len(), 3);
+        let program = parse_program("return 5; return true; return foobar; ", 3);
         assert_matches!(&program[0], Return(Literal(Integer(5))));
         assert_matches!(&program[1], Return(Literal(Boolean(true))));
         assert_matches!(&program[2], Return(Literal(Identifier("foobar"))));
@@ -520,15 +479,7 @@ mod tests {
 
     #[test]
     fn test_if_expression() {
-        let program = parse_program(
-            r#"
-            if (x < y) { x };
-            if (x < y) { x } else { y };
-        "#,
-        );
-
-        assert_eq!(program.len(), 2);
-        use Binary::LT;
+        let program = parse_program("if (x < y) { x }; if (x < y) { x } else { y };", 2);
         assert_matches!(
             &program[0],
             Expression(Literal(If {
@@ -559,21 +510,13 @@ mod tests {
 
     #[test]
     fn test_function_literal() {
-        let program = parse_program(
-            r#"
-            fn(x, y) { x + y; };
-        "#,
-        );
-
-        assert_eq!(program.len(), 1);
-        use Binary::Add;
+        let program = parse_program("fn(x, y) { x + y; };", 1);
         assert_fn!(
             &program[0],
             2,
             1,
             |args: &Vec<&str>, body: &ast::BlockStatement| {
-                assert_eq!(args[0], "x");
-                assert_eq!(args[1], "y");
+                assert_eq!(args, &vec!["x", "y"]);
                 assert_infix!(&body.0[0], Identifier("x"), Add, Identifier("y"));
             }
         );
@@ -581,23 +524,50 @@ mod tests {
 
     #[test]
     fn test_function_parameter_parsing() {
-        let program = parse_program(
-            r#"
-            fn(){};
-            fn(x){};
-            fn(x,y,z){};
-        "#,
-        );
-
-        assert_eq!(program.len(), 3);
+        let program = parse_program("fn(){}; fn(x){}; fn(x,y,z){};", 3);
         assert_fn!(&program[0], 0, 0, |_, _| {});
         assert_fn!(&program[1], 1, 0, |args: &Vec<&str>, _| {
-            assert_eq!(args[0], "x");
+            assert_eq!(args, &vec!["x"]);
         });
         assert_fn!(&program[2], 3, 0, |args: &Vec<&str>, _| {
-            assert_eq!(args[0], "x");
-            assert_eq!(args[1], "y");
-            assert_eq!(args[2], "z");
+            assert_eq!(args, &vec!["x", "y", "z"]);
+        });
+    }
+
+    #[test]
+    fn test_array_literal() {
+        let program = parse_program("[]; [1, 2 * 2, 3 + 3]", 2);
+        assert_literal!(&program[0], Array(arr) if arr.len() == 0);
+        assert_literal!(&program[1], Array(arr) if {
+            arr.len() == 3 &&
+            matches!(&arr[0], Literal(Integer(1))) &&
+            infix_expr_matches!(&arr[1], Integer(2), Mul, Integer(2)) &&
+            infix_expr_matches!(&arr[2], Integer(3), Add, Integer(3))
+        });
+    }
+
+    #[test]
+    fn test_hash_literal() {
+        let program = parse_program(
+            r#"
+            {};
+            {"one": 1, "two": 2, "three": 3 };
+            {"one": 0 + 1, "two": 10 - 8, "three": 15 / 5 };
+            "#,
+            3,
+        );
+        assert_literal!(&program[0], Hash(h) if h.len() == 0);
+        assert_literal!(&program[1], Hash(arr) if {
+            arr.len() == 3 &&
+            matches!(&arr[&Literal(String("one"))], Literal(Integer(1))) &&
+            matches!(&arr[&Literal(String("two"))], Literal(Integer(2))) &&
+            matches!(&arr[&Literal(String("three"))], Literal(Integer(3)))
+        });
+        assert_literal!(&program[2], Hash(arr) if {
+            arr.len() == 3 &&
+            infix_expr_matches!(&arr[&Literal(String("one"))], Integer(0), Add, Integer(1)) &&
+            infix_expr_matches!(&arr[&Literal(String("two"))], Integer(10), Sub, Integer(8)) &&
+            infix_expr_matches!(&arr[&Literal(String("three"))], Integer(15), Div, Integer(5))
         });
     }
 
@@ -605,7 +575,6 @@ mod tests {
     fn test_operator_precedence() {
         let cases = vec![
             ("a + add(b * c) + d", "((a + add((b * c))) + d)"),
-            ("a + add[b * c] + d", "((a + (add[(b * c)])) + d)"),
             (
                 "add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))",
                 "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))",
@@ -626,6 +595,8 @@ mod tests {
             ("a * b / c", "((a * b) / c)"),
             ("a + b / c", "(a + (b / c))"),
             ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
+            ("3 + 4", "(3 + 4)"),
+            ("-5 * 5", "((-5) * 5)"),
             ("5 > 4 == 3 < 4", "((5 > 4) == (3 < 4))"),
             ("5 < 4 != 3 > 4", "((5 < 4) != (3 > 4))"),
             (
@@ -637,11 +608,18 @@ mod tests {
             ("2 / (5 + 5)", "(2 / (5 + 5))"),
             ("-(5 + 5)", "(-(5 + 5))"),
             ("!(true == true)", "(!(true == true))"),
+            (
+                "a * [1, 2, 3, 4][b * c] * d",
+                "((a * ([1, 2, 3, 4][(b * c)])) * d)",
+            ),
+            (
+                "add(a * b[2], b[1], 2 * [1, 2][1])",
+                "add((a * (b[2])), (b[1]), (2 * ([1, 2][1])))",
+            ),
         ];
 
         for (case, want) in cases {
-            let program = parse_program(case);
-            assert_eq!(program.len(), 1);
+            let program = parse_program(case, 1);
             assert_matches!(&program[0], Expression(expr) if {
                 let prog = expr.to_string();
                 if prog != want {
