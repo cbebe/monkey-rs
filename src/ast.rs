@@ -14,7 +14,7 @@ fn str_vec(a: &[impl ToString]) -> Vec<String> {
 
 impl<'a> std::fmt::Display for BlockStatement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", str_vec(&self.0).join(";\n"))
+        write!(f, "{};", str_vec(&self.0).join(";\n"))
     }
 }
 
@@ -32,7 +32,6 @@ pub enum Statement<'a> {
     Let(&'a str, Expression<'a>),
     Return(Expression<'a>),
     Expression(Expression<'a>),
-    Block(BlockStatement<'a>),
 }
 
 impl<'a> std::fmt::Display for Statement<'a> {
@@ -41,7 +40,6 @@ impl<'a> std::fmt::Display for Statement<'a> {
             Self::Let(ident, expr) => write!(f, "let {ident} = {expr}"),
             Self::Return(expr) => write!(f, "return {expr}"),
             Self::Expression(expr) => write!(f, "{expr}"),
-            Self::Block(body) => write!(f, "{body}"),
         }
     }
 }
@@ -129,7 +127,8 @@ pub enum Literal<'a> {
 impl<'a> std::fmt::Display for Literal<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::String(v) | Self::Identifier(v) => write!(f, "{v}"),
+            Self::String(v) => write!(f, "\"{v}\""),
+            Self::Identifier(v) => write!(f, "{v}"),
             Self::Boolean(v) => write!(f, "{v}"),
             Self::Integer(v) => write!(f, "{v}"),
             Self::Array(v) => {
@@ -140,7 +139,7 @@ impl<'a> std::fmt::Display for Literal<'a> {
                     f,
                     "{{\n{}\n}}",
                     v.iter()
-                        .map(|(k, v)| format!("{k}: {v},"))
+                        .map(|(k, v)| format!("{k}: {v}"))
                         .collect::<Vec<String>>()
                         .join(",\n")
                 )

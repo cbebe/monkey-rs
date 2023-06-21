@@ -1,9 +1,4 @@
-#![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
-#![allow(clippy::implicit_return, clippy::question_mark_used)]
-
-mod ast;
-
-use ast::{
+use crate::ast::{
     Binary::{Add, Div, Eq, Mul, Neq, Sub, GT, LT},
     BlockStatement, Expression,
     Literal::{Array, Boolean, Function, Hash, Identifier, If, Integer, String},
