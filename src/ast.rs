@@ -1,16 +1,7 @@
-#[derive(Debug)]
-pub enum Node<'a> {
-    Program(Program<'a>),
-    Statement(Statement<'a>),
-    Expression(Expression<'a>),
-}
+use crate::util::str_vec;
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockStatement<'a>(pub Vec<Statement<'a>>);
-
-fn str_vec(a: &[impl ToString]) -> Vec<String> {
-    a.iter().map(std::string::ToString::to_string).collect()
-}
 
 impl<'a> std::fmt::Display for BlockStatement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

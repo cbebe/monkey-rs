@@ -55,14 +55,14 @@ impl Stack {
     }
 }
 
-struct VM {
+pub struct VM {
     constants: Vec<Object>,
     instructions: Instructions,
     stack: Option<Stack>,
 }
 
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     StackOverflow,
     Bytecode(std::io::Error),
     UnknownOpcode(usize, u8),
@@ -121,7 +121,7 @@ impl VM {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast::Node, compiler::Compiler, object::Object, parser};
+    use crate::{compiler::Compiler, object::Object, parser};
 
     use super::VM;
 
@@ -148,7 +148,7 @@ mod tests {
             };
 
             let mut compiler = Compiler::new();
-            if let Err(err) = compiler.compile(Node::Program(program)) {
+            if let Err(err) = compiler.compile_program(program) {
                 panic!("compiler error: {err:?}");
             };
             let mut vm = VM::new(compiler.bytecode());

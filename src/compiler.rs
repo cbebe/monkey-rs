@@ -1,11 +1,28 @@
-use crate::{
-    ast,
-    code::{self, opcodes},
-    object::Object,
-};
+use crate::{ast, code, object::Object};
 
 #[derive(Debug)]
-pub enum Error {}
+pub enum Node<'a> {
+    Statement(ast::Statement<'a>),
+    Expression(ast::Expression<'a>),
+}
+
+impl<'a> std::fmt::Display for Node<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    UnknownOperation(ast::Binary),
+    NotYetImplemented(String),
+}
+
+impl<'a> std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
 
 pub struct Compiler {
     instructions: code::Instructions,
@@ -43,27 +60,30 @@ impl Compiler {
             .expect("number of constants exceeded")
     }
 
-    pub fn compile(&mut self, node: ast::Node) -> Result<(), Error> {
-        use ast::{Expression, Literal, Node, Statement};
+    pub fn compile_program(&mut self, program: ast::Program) -> Result<(), Error> {
+        for statement in program.0 .0 {
+            self.compile(Node::Statement(statement))?;
+        }
+        Ok(())
+    }
+
+    fn compile(&mut self, node: Node) -> Result<(), Error> {
+        use ast::{Expression, Literal, Statement};
         match node {
-            Node::Program(prog) => {
-                for statement in prog.0 .0 {
-                    self.compile(Node::Statement(statement))?;
-                }
-            }
             Node::Statement(Statement::Expression(e)) => self.compile(Node::Expression(e))?,
             Node::Expression(Expression::Infix(left, op, right)) => {
                 self.compile(Node::Expression(*left))?;
                 self.compile(Node::Expression(*right))?;
                 match op {
                     ast::Binary::Add => self.emit(code::Opcode::Add),
-                    ast::Binary::Sub => todo!(),
-                    ast::Binary::Mul => todo!(),
-                    ast::Binary::Div => todo!(),
-                    ast::Binary::LT => todo!(),
-                    ast::Binary::GT => todo!(),
-                    ast::Binary::Eq => todo!(),
-                    ast::Binary::Neq => todo!(),
+                    // ast::Binary::Sub => todo!(),
+                    // ast::Binary::Mul => todo!(),
+                    // ast::Binary::Div => todo!(),
+                    // ast::Binary::LT => todo!(),
+                    // ast::Binary::GT => todo!(),
+                    // ast::Binary::Eq => todo!(),
+                    // ast::Binary::Neq => todo!(),
+                    op => return Err(Error::UnknownOperation(op)),
                 };
             }
             Node::Expression(Expression::Literal(Literal::Integer(int))) => {
@@ -71,7 +91,7 @@ impl Compiler {
                 let idx = self.add_constant(int_obj);
                 self.emit(code::Opcode::Constant(idx));
             }
-            e => panic!("not yet implemented {e:?}"),
+            e => return Err(Error::NotYetImplemented(e.to_string())),
         }
         Ok(())
     }
@@ -88,7 +108,6 @@ impl Compiler {
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::Node,
         code::{make, Disassembled, Instructions, Opcode},
         object, parser,
     };
@@ -126,7 +145,7 @@ mod tests {
             };
 
             let mut compiler = Compiler::new();
-            if let Err(err) = compiler.compile(Node::Program(program)) {
+            if let Err(err) = compiler.compile_program(program) {
                 panic!("compiler error: {err:?}");
             };
             let bytecode = compiler.bytecode();
