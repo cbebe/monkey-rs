@@ -4,6 +4,10 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 pub type Instructions = Vec<u8>;
 
+pub mod opcodes {
+    pub const CONSTANT: u8 = 0;
+}
+
 #[derive(PartialEq, Eq)]
 pub struct Disassembled(pub Instructions);
 
@@ -20,18 +24,18 @@ impl std::fmt::Display for Disassembled {
         loop {
             let opcode = match rdr.read_u8() {
                 Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
-                Err(e) => panic!("Can't read from disassembly: err {}", e),
+                Err(e) => panic!("can't read from disassembly: err {e}"),
                 Ok(opcode) => opcode,
             };
             let pc = bytes_read;
             bytes_read += 1;
             match opcode {
-                0 => {
+                opcodes::CONSTANT => {
                     let constant = rdr.read_u16::<BigEndian>().expect("u16 constant");
-                    writeln!(f, "{:04} {}", pc, Opcode::Constant(constant))?;
+                    writeln!(f, "{pc:04} {}", Opcode::Constant(constant))?;
                     bytes_read += 2;
                 }
-                op => panic!("unknown opcode: {}", op),
+                op => panic!("unknown opcode: {op}"),
             }
         }
     }
@@ -45,26 +49,26 @@ pub enum Opcode {
 impl std::fmt::Display for Opcode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Opcode::Constant(x) => write!(f, "OpConstant {}", x),
+            Self::Constant(x) => write!(f, "OpConstant {x}"),
         }
     }
 }
 
 impl Opcode {
-    pub fn definition(self) -> (u8, usize) {
+    pub const fn definition(self) -> (u8, usize) {
         match self {
-            Opcode::Constant(_) => (0, 2),
+            Self::Constant(_) => (opcodes::CONSTANT, 2),
         }
     }
 }
 
-pub fn make(op: &Opcode) -> Instructions {
+pub fn make(op: Opcode) -> Instructions {
     let (opcode, op_len) = op.definition();
     let mut v = Vec::with_capacity(op_len + 1);
     v.push(opcode);
     match op {
         Opcode::Constant(x) => {
-            v.write_u16::<BigEndian>(*x).unwrap();
+            v.write_u16::<BigEndian>(x).unwrap();
         }
     }
 
@@ -78,9 +82,9 @@ mod tests {
     #[test]
     fn test_instructions_string() {
         let instructions = vec![
-            make(&Opcode::Constant(1)),
-            make(&Opcode::Constant(2)),
-            make(&Opcode::Constant(65535)),
+            make(Opcode::Constant(1)),
+            make(Opcode::Constant(2)),
+            make(Opcode::Constant(65535)),
         ]
         .into_iter()
         .flatten()
@@ -94,10 +98,10 @@ mod tests {
 
     #[test]
     fn test_make() {
-        let cases = vec![(Opcode::Constant(65534), vec![0, 255, 254])];
+        let cases = vec![(Opcode::Constant(65534), vec![opcodes::CONSTANT, 255, 254])];
 
         for (op, expected) in cases.iter() {
-            assert_eq!(&make(op), expected);
+            assert_eq!(&make(*op), expected);
         }
     }
 }

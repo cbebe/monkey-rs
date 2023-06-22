@@ -9,12 +9,12 @@ pub struct Compiler {
 }
 
 pub struct Bytecode {
-    instructions: code::Instructions,
-    constants: Vec<Object>,
+    pub instructions: code::Instructions,
+    pub constants: Vec<Object>,
 }
 
 impl Compiler {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             instructions: vec![],
             constants: vec![],
@@ -28,7 +28,7 @@ impl Compiler {
     }
 
     fn emit(&mut self, op: code::Opcode) -> usize {
-        let mut ins = code::make(&op);
+        let mut ins = code::make(op);
         self.add_instruction(&mut ins)
     }
 
@@ -43,7 +43,7 @@ impl Compiler {
         use ast::{Expression, Literal, Node, Statement};
         match node {
             Node::Program(prog) => {
-                for statement in prog.0 .0.into_iter() {
+                for statement in prog.0 .0 {
                     self.compile(Node::Statement(statement))?;
                 }
             }
@@ -63,6 +63,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     pub fn bytecode(self) -> Bytecode {
         Bytecode {
             instructions: self.instructions,
@@ -96,7 +97,7 @@ mod tests {
         run_compiler_tests(vec![Test {
             input: "1 + 2",
             constants: vec![Constant::Int(1), Constant::Int(2)],
-            instructions: vec![make(&Opcode::Constant(0)), make(&Opcode::Constant(1))],
+            instructions: vec![make(Opcode::Constant(0)), make(Opcode::Constant(1))],
         }]);
     }
 
