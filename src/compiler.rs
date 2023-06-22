@@ -1,16 +1,16 @@
-use crate::{ast, code, object};
+use crate::{ast, code, object::Object};
 
 #[derive(Debug)]
 pub enum Error {}
 
 pub struct Compiler {
     instructions: code::Instructions,
-    constants: Vec<object::Object>,
+    constants: Vec<Object>,
 }
 
 pub struct Bytecode {
     instructions: code::Instructions,
-    constants: Vec<object::Object>,
+    constants: Vec<Object>,
 }
 
 impl Compiler {
@@ -21,7 +21,45 @@ impl Compiler {
         }
     }
 
+    fn add_instruction(&mut self, ins: &mut code::Instructions) -> usize {
+        let pos = self.instructions.len();
+        self.instructions.append(ins);
+        pos
+    }
+
+    fn emit(&mut self, op: code::Opcode) -> usize {
+        let mut ins = code::make(&op);
+        self.add_instruction(&mut ins)
+    }
+
+    fn add_constant(&mut self, obj: Object) -> u16 {
+        self.constants.push(obj);
+        (self.constants.len() - 1)
+            .try_into()
+            .expect("number of constants exceeded")
+    }
+
     pub fn compile(&mut self, node: ast::Node) -> Result<(), Error> {
+        use ast::{Expression, Literal, Node, Statement};
+        match node {
+            Node::Program(prog) => {
+                for statement in prog.0 .0.into_iter() {
+                    self.compile(Node::Statement(statement))?;
+                }
+            }
+            Node::Statement(Statement::Expression(e)) => self.compile(Node::Expression(e))?,
+            Node::Expression(Expression::Infix(left, _op, right)) => {
+                self.compile(Node::Expression(*left))?;
+                // TODO: parse op
+                self.compile(Node::Expression(*right))?;
+            }
+            Node::Expression(Expression::Literal(Literal::Integer(int))) => {
+                let int_obj = Object::Integer(int);
+                let idx = self.add_constant(int_obj);
+                self.emit(code::Opcode::Constant(idx));
+            }
+            e => panic!("not yet implemented {e:?}"),
+        }
         Ok(())
     }
 

@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub enum Node<'a> {
     Program(Program<'a>),
     Statement(Statement<'a>),
