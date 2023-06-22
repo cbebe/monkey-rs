@@ -1,4 +1,8 @@
-use crate::{ast, code, object::Object};
+use crate::{
+    ast,
+    code::{self, opcodes},
+    object::Object,
+};
 
 #[derive(Debug)]
 pub enum Error {}
@@ -48,10 +52,19 @@ impl Compiler {
                 }
             }
             Node::Statement(Statement::Expression(e)) => self.compile(Node::Expression(e))?,
-            Node::Expression(Expression::Infix(left, _op, right)) => {
+            Node::Expression(Expression::Infix(left, op, right)) => {
                 self.compile(Node::Expression(*left))?;
-                // TODO: parse op
                 self.compile(Node::Expression(*right))?;
+                match op {
+                    ast::Binary::Add => self.emit(code::Opcode::Add),
+                    ast::Binary::Sub => todo!(),
+                    ast::Binary::Mul => todo!(),
+                    ast::Binary::Div => todo!(),
+                    ast::Binary::LT => todo!(),
+                    ast::Binary::GT => todo!(),
+                    ast::Binary::Eq => todo!(),
+                    ast::Binary::Neq => todo!(),
+                };
             }
             Node::Expression(Expression::Literal(Literal::Integer(int))) => {
                 let int_obj = Object::Integer(int);
@@ -97,7 +110,11 @@ mod tests {
         run_compiler_tests(vec![Test {
             input: "1 + 2",
             constants: vec![Constant::Int(1), Constant::Int(2)],
-            instructions: vec![make(Opcode::Constant(0)), make(Opcode::Constant(1))],
+            instructions: vec![
+                make(Opcode::Constant(0)),
+                make(Opcode::Constant(1)),
+                make(Opcode::Add),
+            ],
         }]);
     }
 

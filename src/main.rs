@@ -23,6 +23,16 @@ impl<'a> From<nom::Err<VerboseError<&'a str>>> for Error {
     }
 }
 
+#[allow(dead_code)]
+fn read_file() -> Result<(), Error> {
+    let args = std::env::args().collect::<Vec<String>>();
+    let path = args.get(1).ok_or(Error::NoFileGiven)?;
+    let program = std::fs::read_to_string(path).or(Err(Error::FileError))?;
+    let (_, ast) = parser::program(&program)?;
+    println!("{ast}");
+    Ok(())
+}
+
 fn main() -> Result<(), Error> {
     let args = std::env::args().collect::<Vec<String>>();
     let path = args.get(1).ok_or(Error::NoFileGiven)?;

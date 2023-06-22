@@ -41,7 +41,13 @@ impl Stack {
         Ok(())
     }
 
-    pub fn stack_top(&self) -> Option<&Object> {
+    fn pop(&mut self) -> Option<Object> {
+        let top = self.stack_top().cloned();
+        self.sp -= 1;
+        top
+    }
+
+    fn stack_top(&self) -> Option<&Object> {
         match self.sp {
             0 => None,
             sp => Some(&self.stack[sp - 1]),
@@ -91,6 +97,16 @@ impl VM {
                     stack.push(&self.constants[constant as usize])?;
                     ip += 2;
                 }
+                opcodes::ADD => {
+                    let left = stack.pop();
+                    let right = stack.pop();
+                    match (left, right) {
+                        (Some(Object::Integer(x)), Some(Object::Integer(y))) => {
+                            stack.push(&Object::Integer(x + y))?;
+                        }
+                        _ => panic!("invalid state"),
+                    };
+                }
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
         }
@@ -120,7 +136,7 @@ mod tests {
         run_vm_tests(vec![
             ("1", Constant::Int(1)),
             ("2", Constant::Int(2)),
-            ("1 + 2", Constant::Int(2)), // TODO: Fixme
+            ("1 + 2", Constant::Int(3)),
         ])
     }
 

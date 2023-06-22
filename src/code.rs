@@ -6,6 +6,7 @@ pub type Instructions = Vec<u8>;
 
 pub mod opcodes {
     pub const CONSTANT: u8 = 0;
+    pub const ADD: u8 = 1;
 }
 
 #[derive(PartialEq, Eq)]
@@ -35,6 +36,9 @@ impl std::fmt::Display for Disassembled {
                     writeln!(f, "{pc:04} {}", Opcode::Constant(constant))?;
                     bytes_read += 2;
                 }
+                opcodes::ADD => {
+                    writeln!(f, "{pc:04} {}", Opcode::Add)?;
+                }
                 op => panic!("unknown opcode: {op}"),
             }
         }
@@ -44,12 +48,14 @@ impl std::fmt::Display for Disassembled {
 #[derive(Debug, Copy, Clone)]
 pub enum Opcode {
     Constant(u16),
+    Add,
 }
 
 impl std::fmt::Display for Opcode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Constant(x) => write!(f, "OpConstant {x}"),
+            Self::Add => write!(f, "OpAdd"),
         }
     }
 }
@@ -58,6 +64,7 @@ impl Opcode {
     pub const fn definition(self) -> (u8, usize) {
         match self {
             Self::Constant(_) => (opcodes::CONSTANT, 2),
+            Self::Add => (opcodes::ADD, 0),
         }
     }
 }
@@ -70,6 +77,7 @@ pub fn make(op: Opcode) -> Instructions {
         Opcode::Constant(x) => {
             v.write_u16::<BigEndian>(x).unwrap();
         }
+        Opcode::Add => {}
     }
 
     v
@@ -82,23 +90,26 @@ mod tests {
     #[test]
     fn test_instructions_string() {
         let instructions = vec![
-            make(Opcode::Constant(1)),
+            make(Opcode::Add),
             make(Opcode::Constant(2)),
             make(Opcode::Constant(65535)),
         ]
         .into_iter()
         .flatten()
         .collect::<Instructions>();
-        let expected = r#"0000 OpConstant 1
-0003 OpConstant 2
-0006 OpConstant 65535
+        let expected = r#"0000 OpAdd
+0001 OpConstant 2
+0004 OpConstant 65535
 "#;
         assert_eq!(Disassembled(instructions).to_string(), expected);
     }
 
     #[test]
     fn test_make() {
-        let cases = vec![(Opcode::Constant(65534), vec![opcodes::CONSTANT, 255, 254])];
+        let cases = vec![
+            (Opcode::Constant(65534), vec![opcodes::CONSTANT, 255, 254]),
+            (Opcode::Add, vec![opcodes::ADD]),
+        ];
 
         for (op, expected) in cases.iter() {
             assert_eq!(&make(*op), expected);
