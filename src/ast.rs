@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 pub enum Node<'a> {
     Program(Program<'a>),
     Statement(Statement<'a>),

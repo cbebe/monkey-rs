@@ -1,6 +1,6 @@
 use byteorder::{BigEndian, WriteBytesExt};
 
-type Instructions = Vec<u8>;
+pub type Instructions = Vec<u8>;
 
 #[derive(Debug, Copy, Clone)]
 enum Opcode {

@@ -4,8 +4,10 @@
 use nom::error::VerboseError;
 
 mod ast;
-mod parser;
 mod code;
+mod compiler;
+mod object;
+mod parser;
 
 #[derive(Debug)]
 enum Error {
