@@ -60,8 +60,7 @@ fn process_line(line: &str) -> Result<(), Error> {
     let (_, program) = parser::program(&line)?;
     let mut comp = compiler::Compiler::new();
     comp.compile_program(program)?;
-    let mut machine = vm::VM::new(comp.bytecode());
-    machine.run()?;
+    let machine = vm::VM::new(comp.bytecode()).run()?;
     let stack_top = machine.stack_top();
     if let Some(obj) = stack_top {
         println!("{obj}");

@@ -55,10 +55,14 @@ impl Stack {
     }
 }
 
-pub struct VM {
+pub struct Run;
+pub struct Init;
+
+pub struct VM<State = Init> {
     constants: Vec<Object>,
     instructions: Instructions,
     stack: Option<Stack>,
+    state: State,
 }
 
 #[derive(Debug)]
@@ -76,10 +80,13 @@ impl VM {
             constants: bytecode.constants,
             instructions: bytecode.instructions,
             stack: None,
+            state: Init,
         }
     }
+}
 
-    pub fn run(&mut self) -> Result<(), Error> {
+impl<State> VM<State> {
+    pub fn run(mut self) -> Result<VM<Run>, Error> {
         let mut rdr = Cursor::new(&self.instructions);
         let mut stack = Stack::new();
         let mut ip = 0;
@@ -111,9 +118,16 @@ impl VM {
             }
         }
         self.stack = Some(stack);
-        Ok(())
+        Ok(VM::<Run> {
+            constants: self.constants,
+            instructions: self.instructions,
+            stack: Some(stack),
+            state: Run,
+        })
     }
+}
 
+impl VM<Run> {
     pub fn stack_top(&self) -> Option<&Object> {
         self.stack.as_ref().and_then(Stack::stack_top)
     }
@@ -152,8 +166,9 @@ mod tests {
                 panic!("compiler error: {err:?}");
             };
             let mut vm = VM::new(compiler.bytecode());
-            if let Err(err) = vm.run() {
-                panic!("vm error: {err:?}");
+            let vm = match vm.run() {
+                Ok(vm) => vm,
+                Err(err) => panic!("vm error: {err:?}"),
             };
             let got = vm.stack_top().expect("stack value");
             test_object(got, &expected);
