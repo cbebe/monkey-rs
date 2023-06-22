@@ -35,22 +35,31 @@ impl Compiler {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast::Node, code::Instructions, object, parser};
+    use crate::{
+        ast::Node,
+        code::{make, Disassembled, Instructions, Opcode},
+        object, parser,
+    };
 
     use super::Compiler;
 
     enum Constant {
         Int(i64),
     }
-    struct Test {
-        input: String,
+
+    struct Test<'a> {
+        input: &'a str,
         constants: Vec<Constant>,
         instructions: Vec<Instructions>,
     }
 
     #[test]
     fn test_integer_arithmetic() {
-        todo!()
+        run_compiler_tests(vec![Test {
+            input: "1 + 2",
+            constants: vec![Constant::Int(1), Constant::Int(2)],
+            instructions: vec![make(&Opcode::Constant(0)), make(&Opcode::Constant(1))],
+        }]);
     }
 
     fn run_compiler_tests(tests: Vec<Test>) {
@@ -71,10 +80,17 @@ mod tests {
     }
 
     fn test_instructions(expected: Vec<Instructions>, actual: Instructions) {
-        todo!()
+        let expected = expected.into_iter().flatten().collect::<Instructions>();
+        assert_eq!(Disassembled(expected), Disassembled(actual));
     }
 
     fn test_constants(expected: Vec<Constant>, actual: Vec<object::Object>) {
-        todo!()
+        assert_eq!(expected.len(), actual.len());
+        for (want, got) in expected.iter().zip(actual.iter()) {
+            assert!(match (want, got) {
+                (Constant::Int(x), object::Object::Integer(y)) if x == y => true,
+                _ => false,
+            });
+        }
     }
 }
