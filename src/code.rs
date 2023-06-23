@@ -11,6 +11,8 @@ pub mod opcodes {
     pub const SUB: u8 = 3;
     pub const MUL: u8 = 4;
     pub const DIV: u8 = 5;
+    pub const TRUE: u8 = 6;
+    pub const FALSE: u8 = 7;
 }
 
 #[derive(PartialEq, Eq)]
@@ -45,6 +47,8 @@ impl std::fmt::Display for Disassembled {
                 opcodes::SUB => writeln!(f, "{pc:04} {}", Opcode::Sub)?,
                 opcodes::MUL => writeln!(f, "{pc:04} {}", Opcode::Mul)?,
                 opcodes::DIV => writeln!(f, "{pc:04} {}", Opcode::Div)?,
+                opcodes::TRUE => writeln!(f, "{pc:04} {}", Opcode::True)?,
+                opcodes::FALSE => writeln!(f, "{pc:04} {}", Opcode::False)?,
                 op => panic!("unknown opcode: {op}"),
             };
         }
@@ -59,6 +63,8 @@ pub enum Opcode {
     Sub,
     Mul,
     Div,
+    True,
+    False,
 }
 
 impl std::fmt::Display for Opcode {
@@ -70,6 +76,8 @@ impl std::fmt::Display for Opcode {
             Self::Sub => write!(f, "OpSub"),
             Self::Mul => write!(f, "OpMul"),
             Self::Div => write!(f, "OpDiv"),
+            Self::True => write!(f, "OpTrue"),
+            Self::False => write!(f, "OpFalse"),
         }
     }
 }
@@ -83,6 +91,8 @@ impl Opcode {
             Self::Sub => (opcodes::SUB, 0),
             Self::Mul => (opcodes::MUL, 0),
             Self::Div => (opcodes::DIV, 0),
+            Self::True => (opcodes::TRUE, 0),
+            Self::False => (opcodes::FALSE, 0),
         }
     }
 }
@@ -95,7 +105,13 @@ pub fn make(op: Opcode) -> Instructions {
         Opcode::Constant(x) => {
             v.write_u16::<BigEndian>(x).unwrap();
         }
-        Opcode::Add | Opcode::Pop | Opcode::Sub | Opcode::Mul | Opcode::Div => {}
+        Opcode::Add
+        | Opcode::Pop
+        | Opcode::Sub
+        | Opcode::Mul
+        | Opcode::Div
+        | Opcode::True
+        | Opcode::False => {}
     }
 
     v

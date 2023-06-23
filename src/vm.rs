@@ -6,6 +6,9 @@ use crate::{code::opcodes, code::Instructions, compiler::Bytecode, object::Objec
 
 const STACK_SIZE: usize = 2048;
 
+const TRUE: Object = Object::Boolean(true);
+const FALSE: Object = Object::Boolean(false);
+
 struct Stack {
     stack: Vec<Object>,
     sp: usize,
@@ -115,6 +118,8 @@ impl<State> VM<State> {
                     stack.push(&self.constants[constant as usize])?;
                     ip += 2;
                 }
+                opcodes::TRUE => stack.push(&TRUE)?,
+                opcodes::FALSE => stack.push(&FALSE)?,
                 opcodes::ADD | opcodes::SUB | opcodes::MUL | opcodes::DIV => {
                     let left = stack.pop();
                     let right = stack.pop();
@@ -177,6 +182,8 @@ mod tests {
             ("5 * 2 + 10", Constant::Int(20)),
             ("5 + 2 * 10", Constant::Int(25)),
             ("5 * (2 + 10)", Constant::Int(60)),
+            ("true", Constant::Bool(true)),
+            ("false", Constant::Bool(false)),
         ])
     }
 

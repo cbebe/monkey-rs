@@ -89,6 +89,13 @@ impl Compiler {
                     op => return Err(Error::UnknownOperation(op)),
                 };
             }
+            Node::Expression(Expression::Literal(Literal::Boolean(bool))) => {
+                self.emit(if bool {
+                    code::Opcode::True
+                } else {
+                    code::Opcode::False
+                });
+            }
             Node::Expression(Expression::Literal(Literal::Integer(int))) => {
                 let int_obj = Object::Integer(int);
                 let idx = self.add_constant(int_obj);
@@ -173,6 +180,16 @@ mod tests {
                     make(Opcode::Div),
                     make(Opcode::Pop),
                 ],
+            },
+            Test {
+                input: "true",
+                constants: vec![],
+                instructions: vec![make(Opcode::True), make(Opcode::Pop)],
+            },
+            Test {
+                input: "false",
+                constants: vec![],
+                instructions: vec![make(Opcode::False), make(Opcode::Pop)],
             },
         ]);
     }
