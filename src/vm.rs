@@ -120,23 +120,13 @@ impl<State> VM<State> {
                 }
                 opcodes::TRUE => stack.push(&TRUE)?,
                 opcodes::FALSE => stack.push(&FALSE)?,
+                opcodes::EQUAL | opcodes::NOT_EQUAL | opcodes::GREATER_THAN => {
+                    let result = Self::exec_cmp(opcode, &mut stack);
+                    stack.push(&Object::Boolean(result))?;
+                }
                 opcodes::ADD | opcodes::SUB | opcodes::MUL | opcodes::DIV => {
-                    let left = stack.pop();
-                    let right = stack.pop();
-                    match (left, right) {
-                        (Some(Object::Integer(x)), Some(Object::Integer(y))) => {
-                            let result = match opcode {
-                                opcodes::ADD => x + y,
-                                opcodes::SUB => y - x,
-                                opcodes::MUL => x * y,
-                                opcodes::DIV => y / x,
-                                _ => panic!("invalid op"),
-                            };
-                            stack.push(&Object::Integer(result))?;
-                        }
-                        (Some(x), Some(y)) => panic!("invalid operation for {x} and {y}"),
-                        (_, _) => panic!("invalid state"),
-                    };
+                    let result = Self::exec_bin_op(opcode, &mut stack);
+                    stack.push(&Object::Integer(result))?;
                 }
                 opcodes::POP => {
                     stack.pop();
@@ -150,6 +140,42 @@ impl<State> VM<State> {
             stack: Some(stack),
             state: vm_state::Run,
         })
+    }
+
+    fn exec_cmp(opcode: u8, stack: &mut Stack) -> bool {
+        let right = stack.pop();
+        let left = stack.pop();
+        match (left, right) {
+            (Some(Object::Boolean(x)), Some(Object::Boolean(y))) => match opcode {
+                opcodes::EQUAL => x == y,
+                opcodes::NOT_EQUAL => x != y,
+                op => panic!("invalid op for type bool: {op:?}"),
+            },
+            (Some(Object::Integer(x)), Some(Object::Integer(y))) => match opcode {
+                opcodes::EQUAL => x == y,
+                opcodes::NOT_EQUAL => x != y,
+                opcodes::GREATER_THAN => x > y,
+                op => panic!("invalid op for type int: {op:?}"),
+            },
+            (Some(x), Some(y)) => panic!("invalid operation for {x} and {y}"),
+            (_, _) => panic!("invalid state"),
+        }
+    }
+
+    fn exec_bin_op(opcode: u8, stack: &mut Stack) -> i64 {
+        let left = stack.pop();
+        let right = stack.pop();
+        match (left, right) {
+            (Some(Object::Integer(x)), Some(Object::Integer(y))) => match opcode {
+                opcodes::ADD => x + y,
+                opcodes::SUB => y - x,
+                opcodes::MUL => x * y,
+                opcodes::DIV => y / x,
+                _ => panic!("invalid op"),
+            },
+            (Some(x), Some(y)) => panic!("invalid operation for {x} and {y}"),
+            (_, _) => panic!("invalid state"),
+        }
     }
 }
 
@@ -169,22 +195,47 @@ mod tests {
 
     #[test]
     pub fn test_integer_arithmetic() {
+        use Constant::Int;
         run_vm_tests(vec![
-            ("1", Constant::Int(1)),
-            ("2", Constant::Int(2)),
-            ("1 + 2", Constant::Int(3)),
-            ("1 - 2", Constant::Int(-1)),
-            ("1 * 2", Constant::Int(2)),
-            ("4 / 2", Constant::Int(2)),
-            ("50 / 2 * 2 + 10 - 5", Constant::Int(55)),
-            ("5 + 5 + 5 + 5 - 10", Constant::Int(10)),
-            ("2 * 2 * 2 * 2 * 2", Constant::Int(32)),
-            ("5 * 2 + 10", Constant::Int(20)),
-            ("5 + 2 * 10", Constant::Int(25)),
-            ("5 * (2 + 10)", Constant::Int(60)),
-            ("true", Constant::Bool(true)),
-            ("false", Constant::Bool(false)),
+            ("1", Int(1)),
+            ("2", Int(2)),
+            ("1 + 2", Int(3)),
+            ("1 - 2", Int(-1)),
+            ("1 * 2", Int(2)),
+            ("4 / 2", Int(2)),
+            ("50 / 2 * 2 + 10 - 5", Int(55)),
+            ("5 + 5 + 5 + 5 - 10", Int(10)),
+            ("2 * 2 * 2 * 2 * 2", Int(32)),
+            ("5 * 2 + 10", Int(20)),
+            ("5 + 2 * 10", Int(25)),
+            ("5 * (2 + 10)", Int(60)),
         ])
+    }
+
+    #[test]
+    fn test_boolean_expressions() {
+        use Constant::Bool;
+        run_vm_tests(vec![
+            ("true", Bool(true)),
+            ("false", Bool(false)),
+            ("1 < 2", Bool(true)),
+            ("1 > 2", Bool(false)),
+            ("1 < 1", Bool(false)),
+            ("1 > 1", Bool(false)),
+            ("1 == 1", Bool(true)),
+            ("1 != 1", Bool(false)),
+            ("1 == 2", Bool(false)),
+            ("1 != 2", Bool(true)),
+            ("true == true", Bool(true)),
+            ("false == false", Bool(true)),
+            ("true == false", Bool(false)),
+            ("true != false", Bool(true)),
+            ("false != true", Bool(true)),
+            ("(1 < 2) == true", Bool(true)),
+            ("(1 < 2) == false", Bool(false)),
+            ("(1 > 2) == true", Bool(false)),
+            ("(1 > 2) == false", Bool(true)),
+        ]);
     }
 
     fn run_vm_tests(tests: Vec<Test>) {

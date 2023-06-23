@@ -32,7 +32,7 @@ pub mod test_utils {
     }
 
     pub fn compile_program(input: &str) -> Bytecode {
-        let program = match parser::program(&input) {
+        let program = match parser::program(input) {
             Ok(p) => p.1,
             Err(e) => panic!("invalid program {e}"),
         };

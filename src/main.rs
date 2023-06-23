@@ -57,7 +57,7 @@ fn read_file<'a>() -> Result<(), Error> {
 }
 
 fn process_line(line: &str) -> Result<(), Error> {
-    let (_, program) = parser::program(&line)?;
+    let (_, program) = parser::program(line)?;
     let mut comp = compiler::Compiler::new();
     comp.compile_program(program)?;
     let machine = vm::VM::new(comp.bytecode()).run()?;

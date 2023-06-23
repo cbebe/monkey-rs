@@ -14,7 +14,6 @@ impl<'a> std::fmt::Display for Node<'a> {
 
 #[derive(Debug)]
 pub enum Error {
-    UnknownOperation(ast::Binary),
     NotYetImplemented(String),
 }
 
@@ -75,18 +74,22 @@ impl Compiler {
                 self.emit(code::Opcode::Pop);
             }
             Node::Expression(Expression::Infix(left, op, right)) => {
-                self.compile(Node::Expression(*left))?;
-                self.compile(Node::Expression(*right))?;
+                // Reverse operand emit so we can use the same instruction as GT
+                if op == ast::Binary::LT {
+                    self.compile(Node::Expression(*right))?;
+                    self.compile(Node::Expression(*left))?;
+                } else {
+                    self.compile(Node::Expression(*left))?;
+                    self.compile(Node::Expression(*right))?;
+                }
                 match op {
                     ast::Binary::Add => self.emit(code::Opcode::Add),
                     ast::Binary::Sub => self.emit(code::Opcode::Sub),
                     ast::Binary::Mul => self.emit(code::Opcode::Mul),
                     ast::Binary::Div => self.emit(code::Opcode::Div),
-                    // ast::Binary::LT => todo!(),
-                    // ast::Binary::GT => todo!(),
-                    // ast::Binary::Eq => todo!(),
-                    // ast::Binary::Neq => todo!(),
-                    op => return Err(Error::UnknownOperation(op)),
+                    ast::Binary::LT | ast::Binary::GT => self.emit(code::Opcode::GreaterThan),
+                    ast::Binary::Eq => self.emit(code::Opcode::Equal),
+                    ast::Binary::Neq => self.emit(code::Opcode::NotEqual),
                 };
             }
             Node::Expression(Expression::Literal(Literal::Boolean(bool))) => {
@@ -118,88 +121,83 @@ impl Compiler {
 #[cfg(test)]
 mod tests {
     use crate::{
-        code::{make, Disassembled, Instructions, Opcode},
-        util::test_utils::{compile_program, test_constants, Constant},
+        code::{self, Disassembled, Instructions, Opcode},
+        util::test_utils::{self, compile_program, test_constants},
     };
 
-    struct Test<'a> {
-        input: &'a str,
-        constants: Vec<Constant>,
-        instructions: Vec<Instructions>,
+    type Test<'a> = (&'a str, Vec<test_utils::Constant>, Vec<Instructions>);
+
+    fn make(ops: Vec<Opcode>) -> Vec<Instructions> {
+        ops.into_iter().map(code::make).collect()
     }
 
     #[test]
     fn test_integer_arithmetic() {
+        use code::Opcode::{Add, Constant, Div, Equal, False, GreaterThan, Mul, NotEqual, Pop, Sub, True};
+        use test_utils::Constant::Int;
         run_compiler_tests(vec![
-            Test {
-                input: "1 + 2",
-                constants: vec![Constant::Int(1), Constant::Int(2)],
-                instructions: vec![
-                    make(Opcode::Constant(0)),
-                    make(Opcode::Constant(1)),
-                    make(Opcode::Add),
-                    make(Opcode::Pop),
-                ],
-            },
-            Test {
-                input: "1; 2",
-                constants: vec![Constant::Int(1), Constant::Int(2)],
-                instructions: vec![
-                    make(Opcode::Constant(0)),
-                    make(Opcode::Pop),
-                    make(Opcode::Constant(1)),
-                    make(Opcode::Pop),
-                ],
-            },
-            Test {
-                input: "1 - 2",
-                constants: vec![Constant::Int(1), Constant::Int(2)],
-                instructions: vec![
-                    make(Opcode::Constant(0)),
-                    make(Opcode::Constant(1)),
-                    make(Opcode::Sub),
-                    make(Opcode::Pop),
-                ],
-            },
-            Test {
-                input: "1 * 2",
-                constants: vec![Constant::Int(1), Constant::Int(2)],
-                instructions: vec![
-                    make(Opcode::Constant(0)),
-                    make(Opcode::Constant(1)),
-                    make(Opcode::Mul),
-                    make(Opcode::Pop),
-                ],
-            },
-            Test {
-                input: "2 / 1",
-                constants: vec![Constant::Int(2), Constant::Int(1)],
-                instructions: vec![
-                    make(Opcode::Constant(0)),
-                    make(Opcode::Constant(1)),
-                    make(Opcode::Div),
-                    make(Opcode::Pop),
-                ],
-            },
-            Test {
-                input: "true",
-                constants: vec![],
-                instructions: vec![make(Opcode::True), make(Opcode::Pop)],
-            },
-            Test {
-                input: "false",
-                constants: vec![],
-                instructions: vec![make(Opcode::False), make(Opcode::Pop)],
-            },
+            (
+                "1 + 2",
+                vec![Int(1), Int(2)],
+                make(vec![Constant(0), Constant(1), Add, Pop]),
+            ),
+            (
+                "1; 2",
+                vec![Int(1), Int(2)],
+                make(vec![Constant(0), Pop, Constant(1), Pop]),
+            ),
+            (
+                "1 - 2",
+                vec![Int(1), Int(2)],
+                make(vec![Constant(0), Constant(1), Sub, Pop]),
+            ),
+            (
+                "1 * 2",
+                vec![Int(1), Int(2)],
+                make(vec![Constant(0), Constant(1), Mul, Pop]),
+            ),
+            (
+                "2 / 1",
+                vec![Int(2), Int(1)],
+                make(vec![Constant(0), Constant(1), Div, Pop]),
+            ),
+            ("true", vec![], make(vec![True, Pop])),
+            ("false", vec![], make(vec![False, Pop])),
+            (
+                "1 > 2",
+                vec![Int(1), Int(2)],
+                make(vec![Constant(0), Constant(1), GreaterThan, Pop]),
+            ),
+            (
+                "1 < 2",
+                vec![Int(2), Int(1)],
+                make(vec![Constant(0), Constant(1), GreaterThan, Pop]),
+            ),
+            (
+                "1 == 2",
+                vec![Int(1), Int(2)],
+                make(vec![Constant(0), Constant(1), Equal, Pop]),
+            ),
+            (
+                "1 != 2",
+                vec![Int(1), Int(2)],
+                make(vec![Constant(0), Constant(1), NotEqual, Pop]),
+            ),
+            ("true == false", vec![], make(vec![True, False, Equal, Pop])),
+            (
+                "true != false",
+                vec![],
+                make(vec![True, False, NotEqual, Pop]),
+            ),
         ]);
     }
 
     fn run_compiler_tests(tests: Vec<Test>) {
-        for test in tests {
-            let bytecode = compile_program(&test.input);
-            test_instructions(test.instructions, bytecode.instructions);
-            if let Err(err) = test_constants(test.constants, bytecode.constants) {
-                panic!("failed test for input {}. {err}", test.input);
+        for (input, constants, instructions) in tests {
+            let bytecode = compile_program(input);
+            test_instructions(instructions, bytecode.instructions);
+            if let Err(err) = test_constants(constants, bytecode.constants) {
+                panic!("failed test for input {}. {err}", &input);
             }
         }
     }

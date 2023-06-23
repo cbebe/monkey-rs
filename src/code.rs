@@ -13,6 +13,9 @@ pub mod opcodes {
     pub const DIV: u8 = 5;
     pub const TRUE: u8 = 6;
     pub const FALSE: u8 = 7;
+    pub const EQUAL: u8 = 8;
+    pub const NOT_EQUAL: u8 = 9;
+    pub const GREATER_THAN: u8 = 10;
 }
 
 #[derive(PartialEq, Eq)]
@@ -49,7 +52,10 @@ impl std::fmt::Display for Disassembled {
                 opcodes::DIV => writeln!(f, "{pc:04} {}", Opcode::Div)?,
                 opcodes::TRUE => writeln!(f, "{pc:04} {}", Opcode::True)?,
                 opcodes::FALSE => writeln!(f, "{pc:04} {}", Opcode::False)?,
-                op => panic!("unknown opcode: {op}"),
+                opcodes::EQUAL => writeln!(f, "{pc:04} {}", Opcode::Equal)?,
+                opcodes::NOT_EQUAL => writeln!(f, "{pc:04} {}", Opcode::NotEqual)?,
+                opcodes::GREATER_THAN => writeln!(f, "{pc:04} {}", Opcode::GreaterThan)?,
+                op => writeln!(f, "{pc:04} unknown opcode: {op}")?,
             };
         }
     }
@@ -65,6 +71,9 @@ pub enum Opcode {
     Div,
     True,
     False,
+    Equal,
+    NotEqual,
+    GreaterThan,
 }
 
 impl std::fmt::Display for Opcode {
@@ -78,6 +87,9 @@ impl std::fmt::Display for Opcode {
             Self::Div => write!(f, "OpDiv"),
             Self::True => write!(f, "OpTrue"),
             Self::False => write!(f, "OpFalse"),
+            Self::Equal => write!(f, "OpEqual"),
+            Self::NotEqual => write!(f, "OpNotEqual"),
+            Self::GreaterThan => write!(f, "OpGreaterThan"),
         }
     }
 }
@@ -93,6 +105,9 @@ impl Opcode {
             Self::Div => (opcodes::DIV, 0),
             Self::True => (opcodes::TRUE, 0),
             Self::False => (opcodes::FALSE, 0),
+            Self::Equal => (opcodes::EQUAL, 0),
+            Self::NotEqual => (opcodes::NOT_EQUAL, 0),
+            Self::GreaterThan => (opcodes::GREATER_THAN, 0),
         }
     }
 }
@@ -111,7 +126,10 @@ pub fn make(op: Opcode) -> Instructions {
         | Opcode::Mul
         | Opcode::Div
         | Opcode::True
-        | Opcode::False => {}
+        | Opcode::False
+        | Opcode::Equal
+        | Opcode::NotEqual
+        | Opcode::GreaterThan => {}
     }
 
     v
@@ -145,7 +163,7 @@ mod tests {
             (Opcode::Add, vec![opcodes::ADD]),
         ];
 
-        for (op, expected) in cases.iter() {
+        for (op, expected) in &cases {
             assert_eq!(&make(*op), expected);
         }
     }
