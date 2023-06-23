@@ -70,7 +70,10 @@ impl Compiler {
     fn compile(&mut self, node: Node) -> Result<(), Error> {
         use ast::{Expression, Literal, Statement};
         match node {
-            Node::Statement(Statement::Expression(e)) => self.compile(Node::Expression(e))?,
+            Node::Statement(Statement::Expression(e)) => {
+                self.compile(Node::Expression(e))?;
+                self.emit(code::Opcode::Pop);
+            }
             Node::Expression(Expression::Infix(left, op, right)) => {
                 self.compile(Node::Expression(*left))?;
                 self.compile(Node::Expression(*right))?;
@@ -126,15 +129,28 @@ mod tests {
 
     #[test]
     fn test_integer_arithmetic() {
-        run_compiler_tests(vec![Test {
-            input: "1 + 2",
-            constants: vec![Constant::Int(1), Constant::Int(2)],
-            instructions: vec![
-                make(Opcode::Constant(0)),
-                make(Opcode::Constant(1)),
-                make(Opcode::Add),
-            ],
-        }]);
+        run_compiler_tests(vec![
+            Test {
+                input: "1 + 2",
+                constants: vec![Constant::Int(1), Constant::Int(2)],
+                instructions: vec![
+                    make(Opcode::Constant(0)),
+                    make(Opcode::Constant(1)),
+                    make(Opcode::Add),
+                    make(Opcode::Pop),
+                ],
+            },
+            Test {
+                input: "1; 2",
+                constants: vec![Constant::Int(1), Constant::Int(2)],
+                instructions: vec![
+                    make(Opcode::Constant(0)),
+                    make(Opcode::Pop),
+                    make(Opcode::Constant(1)),
+                    make(Opcode::Pop),
+                ],
+            },
+        ]);
     }
 
     fn run_compiler_tests(tests: Vec<Test>) {

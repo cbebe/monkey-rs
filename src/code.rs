@@ -7,6 +7,7 @@ pub type Instructions = Vec<u8>;
 pub mod opcodes {
     pub const CONSTANT: u8 = 0;
     pub const ADD: u8 = 1;
+    pub const POP: u8 = 2;
 }
 
 #[derive(PartialEq, Eq)]
@@ -39,6 +40,9 @@ impl std::fmt::Display for Disassembled {
                 opcodes::ADD => {
                     writeln!(f, "{pc:04} {}", Opcode::Add)?;
                 }
+                opcodes::POP => {
+                    writeln!(f, "{pc:04} {}", Opcode::Add)?;
+                }
                 op => panic!("unknown opcode: {op}"),
             }
         }
@@ -49,6 +53,7 @@ impl std::fmt::Display for Disassembled {
 pub enum Opcode {
     Constant(u16),
     Add,
+    Pop,
 }
 
 impl std::fmt::Display for Opcode {
@@ -56,6 +61,7 @@ impl std::fmt::Display for Opcode {
         match self {
             Self::Constant(x) => write!(f, "OpConstant {x}"),
             Self::Add => write!(f, "OpAdd"),
+            Self::Pop => write!(f, "OpPop"),
         }
     }
 }
@@ -65,6 +71,7 @@ impl Opcode {
         match self {
             Self::Constant(_) => (opcodes::CONSTANT, 2),
             Self::Add => (opcodes::ADD, 0),
+            Self::Pop => (opcodes::POP, 0),
         }
     }
 }
@@ -77,7 +84,7 @@ pub fn make(op: Opcode) -> Instructions {
         Opcode::Constant(x) => {
             v.write_u16::<BigEndian>(x).unwrap();
         }
-        Opcode::Add => {}
+        Opcode::Add | Opcode::Pop => {}
     }
 
     v

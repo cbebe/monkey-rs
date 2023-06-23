@@ -61,8 +61,8 @@ fn process_line(line: &str) -> Result<(), Error> {
     let mut comp = compiler::Compiler::new();
     comp.compile_program(program)?;
     let machine = vm::VM::new(comp.bytecode()).run()?;
-    let stack_top = machine.stack_top();
-    if let Some(obj) = stack_top {
+    let elem = machine.last_popped();
+    if let Some(obj) = elem {
         println!("{obj}");
     }
     Ok(())

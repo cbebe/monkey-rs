@@ -42,9 +42,17 @@ impl Stack {
     }
 
     fn pop(&mut self) -> Option<Object> {
-        let top = self.stack_top().cloned();
-        self.sp -= 1;
-        top
+        if self.sp > 0 {
+            let top = self.stack_top().cloned();
+            self.sp -= 1;
+            top
+        } else {
+            None
+        }
+    }
+
+    fn last_popped(&self) -> Option<&Object> {
+        self.stack.get(self.sp)
     }
 
     fn stack_top(&self) -> Option<&Object> {
@@ -55,13 +63,16 @@ impl Stack {
     }
 }
 
-pub struct Run;
-pub struct Init;
+mod vm_state {
+    pub struct Run;
+    pub struct Init;
+}
 
-pub struct VM<State = Init> {
+pub struct VM<State = vm_state::Init> {
     constants: Vec<Object>,
     instructions: Instructions,
     stack: Option<Stack>,
+    #[allow(dead_code)]
     state: State,
 }
 
@@ -80,13 +91,13 @@ impl VM {
             constants: bytecode.constants,
             instructions: bytecode.instructions,
             stack: None,
-            state: Init,
+            state: vm_state::Init,
         }
     }
 }
 
 impl<State> VM<State> {
-    pub fn run(mut self) -> Result<VM<Run>, Error> {
+    pub fn run(self) -> Result<VM<vm_state::Run>, Error> {
         let mut rdr = Cursor::new(&self.instructions);
         let mut stack = Stack::new();
         let mut ip = 0;
@@ -114,22 +125,24 @@ impl<State> VM<State> {
                         _ => panic!("invalid state"),
                     };
                 }
+                opcodes::POP => {
+                    stack.pop();
+                }
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
         }
-        self.stack = Some(stack);
-        Ok(VM::<Run> {
+        Ok(VM::<vm_state::Run> {
             constants: self.constants,
             instructions: self.instructions,
             stack: Some(stack),
-            state: Run,
+            state: vm_state::Run,
         })
     }
 }
 
-impl VM<Run> {
-    pub fn stack_top(&self) -> Option<&Object> {
-        self.stack.as_ref().and_then(Stack::stack_top)
+impl VM<vm_state::Run> {
+    pub fn last_popped(&self) -> Option<&Object> {
+        self.stack.as_ref().and_then(Stack::last_popped)
     }
 }
 
@@ -165,12 +178,11 @@ mod tests {
             if let Err(err) = compiler.compile_program(program) {
                 panic!("compiler error: {err:?}");
             };
-            let mut vm = VM::new(compiler.bytecode());
-            let vm = match vm.run() {
+            let vm = match VM::new(compiler.bytecode()).run() {
                 Ok(vm) => vm,
                 Err(err) => panic!("vm error: {err:?}"),
             };
-            let got = vm.stack_top().expect("stack value");
+            let got = vm.last_popped().expect("stack value");
             test_object(got, &expected);
         }
     }
