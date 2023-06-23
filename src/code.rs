@@ -8,6 +8,9 @@ pub mod opcodes {
     pub const CONSTANT: u8 = 0;
     pub const ADD: u8 = 1;
     pub const POP: u8 = 2;
+    pub const SUB: u8 = 3;
+    pub const MUL: u8 = 4;
+    pub const DIV: u8 = 5;
 }
 
 #[derive(PartialEq, Eq)]
@@ -34,17 +37,16 @@ impl std::fmt::Display for Disassembled {
             match opcode {
                 opcodes::CONSTANT => {
                     let constant = rdr.read_u16::<BigEndian>().expect("u16 constant");
-                    writeln!(f, "{pc:04} {}", Opcode::Constant(constant))?;
                     bytes_read += 2;
+                    writeln!(f, "{pc:04} {}", Opcode::Constant(constant))?
                 }
-                opcodes::ADD => {
-                    writeln!(f, "{pc:04} {}", Opcode::Add)?;
-                }
-                opcodes::POP => {
-                    writeln!(f, "{pc:04} {}", Opcode::Add)?;
-                }
+                opcodes::ADD => writeln!(f, "{pc:04} {}", Opcode::Add)?,
+                opcodes::POP => writeln!(f, "{pc:04} {}", Opcode::Pop)?,
+                opcodes::SUB => writeln!(f, "{pc:04} {}", Opcode::Sub)?,
+                opcodes::MUL => writeln!(f, "{pc:04} {}", Opcode::Mul)?,
+                opcodes::DIV => writeln!(f, "{pc:04} {}", Opcode::Div)?,
                 op => panic!("unknown opcode: {op}"),
-            }
+            };
         }
     }
 }
@@ -54,6 +56,9 @@ pub enum Opcode {
     Constant(u16),
     Add,
     Pop,
+    Sub,
+    Mul,
+    Div,
 }
 
 impl std::fmt::Display for Opcode {
@@ -62,6 +67,9 @@ impl std::fmt::Display for Opcode {
             Self::Constant(x) => write!(f, "OpConstant {x}"),
             Self::Add => write!(f, "OpAdd"),
             Self::Pop => write!(f, "OpPop"),
+            Self::Sub => write!(f, "OpSub"),
+            Self::Mul => write!(f, "OpMul"),
+            Self::Div => write!(f, "OpDiv"),
         }
     }
 }
@@ -72,6 +80,9 @@ impl Opcode {
             Self::Constant(_) => (opcodes::CONSTANT, 2),
             Self::Add => (opcodes::ADD, 0),
             Self::Pop => (opcodes::POP, 0),
+            Self::Sub => (opcodes::SUB, 0),
+            Self::Mul => (opcodes::MUL, 0),
+            Self::Div => (opcodes::DIV, 0),
         }
     }
 }
@@ -84,7 +95,7 @@ pub fn make(op: Opcode) -> Instructions {
         Opcode::Constant(x) => {
             v.write_u16::<BigEndian>(x).unwrap();
         }
-        Opcode::Add | Opcode::Pop => {}
+        Opcode::Add | Opcode::Pop | Opcode::Sub | Opcode::Mul | Opcode::Div => {}
     }
 
     v

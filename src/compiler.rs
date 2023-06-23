@@ -79,9 +79,9 @@ impl Compiler {
                 self.compile(Node::Expression(*right))?;
                 match op {
                     ast::Binary::Add => self.emit(code::Opcode::Add),
-                    // ast::Binary::Sub => todo!(),
-                    // ast::Binary::Mul => todo!(),
-                    // ast::Binary::Div => todo!(),
+                    ast::Binary::Sub => self.emit(code::Opcode::Sub),
+                    ast::Binary::Mul => self.emit(code::Opcode::Mul),
+                    ast::Binary::Div => self.emit(code::Opcode::Div),
                     // ast::Binary::LT => todo!(),
                     // ast::Binary::GT => todo!(),
                     // ast::Binary::Eq => todo!(),
@@ -112,14 +112,8 @@ impl Compiler {
 mod tests {
     use crate::{
         code::{make, Disassembled, Instructions, Opcode},
-        object, parser,
+        util::test_utils::{compile_program, test_constants, Constant},
     };
-
-    use super::Compiler;
-
-    enum Constant {
-        Int(i64),
-    }
 
     struct Test<'a> {
         input: &'a str,
@@ -150,38 +144,51 @@ mod tests {
                     make(Opcode::Pop),
                 ],
             },
+            Test {
+                input: "1 - 2",
+                constants: vec![Constant::Int(1), Constant::Int(2)],
+                instructions: vec![
+                    make(Opcode::Constant(0)),
+                    make(Opcode::Constant(1)),
+                    make(Opcode::Sub),
+                    make(Opcode::Pop),
+                ],
+            },
+            Test {
+                input: "1 * 2",
+                constants: vec![Constant::Int(1), Constant::Int(2)],
+                instructions: vec![
+                    make(Opcode::Constant(0)),
+                    make(Opcode::Constant(1)),
+                    make(Opcode::Mul),
+                    make(Opcode::Pop),
+                ],
+            },
+            Test {
+                input: "2 / 1",
+                constants: vec![Constant::Int(2), Constant::Int(1)],
+                instructions: vec![
+                    make(Opcode::Constant(0)),
+                    make(Opcode::Constant(1)),
+                    make(Opcode::Div),
+                    make(Opcode::Pop),
+                ],
+            },
         ]);
     }
 
     fn run_compiler_tests(tests: Vec<Test>) {
         for test in tests {
-            let program = match parser::program(&test.input) {
-                Ok(p) => p.1,
-                Err(e) => panic!("invalid program {e}"),
-            };
-
-            let mut compiler = Compiler::new();
-            if let Err(err) = compiler.compile_program(program) {
-                panic!("compiler error: {err:?}");
-            };
-            let bytecode = compiler.bytecode();
+            let bytecode = compile_program(&test.input);
             test_instructions(test.instructions, bytecode.instructions);
-            test_constants(test.constants, bytecode.constants);
+            if let Err(err) = test_constants(test.constants, bytecode.constants) {
+                panic!("failed test for input {}. {err}", test.input);
+            }
         }
     }
 
     fn test_instructions(expected: Vec<Instructions>, actual: Instructions) {
         let expected = expected.into_iter().flatten().collect::<Instructions>();
         assert_eq!(Disassembled(expected), Disassembled(actual));
-    }
-
-    fn test_constants(expected: Vec<Constant>, actual: Vec<object::Object>) {
-        assert_eq!(expected.len(), actual.len());
-        for (want, got) in expected.iter().zip(actual.iter()) {
-            assert!(match (want, got) {
-                (Constant::Int(x), object::Object::Integer(y)) if x == y => true,
-                _ => false,
-            });
-        }
     }
 }

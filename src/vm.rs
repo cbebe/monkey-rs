@@ -115,14 +115,22 @@ impl<State> VM<State> {
                     stack.push(&self.constants[constant as usize])?;
                     ip += 2;
                 }
-                opcodes::ADD => {
+                opcodes::ADD | opcodes::SUB | opcodes::MUL | opcodes::DIV => {
                     let left = stack.pop();
                     let right = stack.pop();
                     match (left, right) {
                         (Some(Object::Integer(x)), Some(Object::Integer(y))) => {
-                            stack.push(&Object::Integer(x + y))?;
+                            let result = match opcode {
+                                opcodes::ADD => x + y,
+                                opcodes::SUB => y - x,
+                                opcodes::MUL => x * y,
+                                opcodes::DIV => y / x,
+                                _ => panic!("invalid op"),
+                            };
+                            stack.push(&Object::Integer(result))?;
                         }
-                        _ => panic!("invalid state"),
+                        (Some(x), Some(y)) => panic!("invalid operation for {x} and {y}"),
+                        (_, _) => panic!("invalid state"),
                     };
                 }
                 opcodes::POP => {
@@ -148,13 +156,9 @@ impl VM<vm_state::Run> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{compiler::Compiler, object::Object, parser};
+    use crate::util::test_utils::{compile_program, test_object, Constant};
 
     use super::VM;
-
-    enum Constant {
-        Int(i64),
-    }
 
     type Test<'a> = (&'a str, Constant);
 
@@ -164,33 +168,29 @@ mod tests {
             ("1", Constant::Int(1)),
             ("2", Constant::Int(2)),
             ("1 + 2", Constant::Int(3)),
+            ("1 - 2", Constant::Int(-1)),
+            ("1 * 2", Constant::Int(2)),
+            ("4 / 2", Constant::Int(2)),
+            ("50 / 2 * 2 + 10 - 5", Constant::Int(55)),
+            ("5 + 5 + 5 + 5 - 10", Constant::Int(10)),
+            ("2 * 2 * 2 * 2 * 2", Constant::Int(32)),
+            ("5 * 2 + 10", Constant::Int(20)),
+            ("5 + 2 * 10", Constant::Int(25)),
+            ("5 * (2 + 10)", Constant::Int(60)),
         ])
     }
 
     fn run_vm_tests(tests: Vec<Test>) {
         for (input, expected) in tests {
-            let program = match parser::program(input) {
-                Ok(p) => p.1,
-                Err(e) => panic!("invalid program {e}"),
-            };
-
-            let mut compiler = Compiler::new();
-            if let Err(err) = compiler.compile_program(program) {
-                panic!("compiler error: {err:?}");
-            };
-            let vm = match VM::new(compiler.bytecode()).run() {
+            let bytecode = compile_program(input);
+            let vm = match VM::new(bytecode).run() {
                 Ok(vm) => vm,
                 Err(err) => panic!("vm error: {err:?}"),
             };
             let got = vm.last_popped().expect("stack value");
-            test_object(got, &expected);
+            if let Err(err) = test_object(got, &expected) {
+                panic!("failed test for input {input}. {err}")
+            }
         }
-    }
-
-    fn test_object(got: &Object, want: &Constant) {
-        assert!(match (want, got) {
-            (Constant::Int(x), Object::Integer(y)) if x == y => true,
-            _ => false,
-        });
     }
 }
