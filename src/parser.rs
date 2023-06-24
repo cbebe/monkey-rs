@@ -11,8 +11,8 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
     character::complete::{alpha1, alphanumeric1, char, digit1, multispace0, multispace1},
-    combinator::{map, map_res, opt, recognize, verify},
-    error::VerboseError,
+    combinator::{cut, map, map_res, opt, recognize, verify},
+    error::{context, VerboseError},
     multi::{many0, many0_count, separated_list0},
     sequence::{delimited, pair, preceded, separated_pair, terminated},
     Parser,
@@ -65,14 +65,22 @@ fn literal(i: &str) -> IResult<Expression> {
     map(
         alt((
             |i| {
-                let (i, cond) = keyword0("if", parens(expr))(i)?;
-                let (i, consequence) = spaced(squirly(block))(i)?;
-                let (i, alternative) = opt(spaced(keyword0("else", squirly(block))))(i)?;
+                let (i, cond) = context("if expr", keyword0("if", cut(parens(expr))))(i)?;
+                let (i, consequence) = context("consequence", spaced(squirly(cut(block))))(i)?;
+                let (i, alternative) = opt(spaced(context(
+                    "else",
+                    keyword0("else", squirly(cut(block))),
+                )))(i)?;
                 Ok((i, If(Box::new(cond), consequence, alternative)))
             },
             |i| {
-                let (i, args) =
-                    keyword0("fn", parens(separated_list0(char(','), spaced(identifier))))(i)?;
+                let (i, args) = context(
+                    "function",
+                    keyword0(
+                        "fn",
+                        cut(parens(separated_list0(char(','), spaced(identifier)))),
+                    ),
+                )(i)?;
                 let (i, body) = spaced(squirly(block))(i)?;
                 Ok((i, Function(args, body)))
             },

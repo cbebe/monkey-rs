@@ -56,8 +56,12 @@ fn read_file<'a>() -> Result<(), Error> {
     Ok(())
 }
 
-fn process_line(line: &str) -> Result<(), Error> {
+fn process_line(line: &str, use_ast: bool) -> Result<(), Error> {
     let (_, program) = parser::program(line)?;
+    if use_ast {
+        println!("{program:#?}");
+        return Ok(());
+    }
     let mut comp = compiler::Compiler::new();
     comp.compile_program(program)?;
     let machine = vm::VM::new(comp.bytecode()).run()?;
@@ -69,6 +73,8 @@ fn process_line(line: &str) -> Result<(), Error> {
 }
 
 fn main() -> Result<(), Error> {
+    let args = std::env::args().collect::<Vec<String>>();
+    let use_ast = matches!(args.get(1).map(|e| &**e), Some("ast"));
     let mut rl = DefaultEditor::new()?;
     loop {
         let readline = rl.readline("");
@@ -77,7 +83,7 @@ fn main() -> Result<(), Error> {
                 if line.is_empty() {
                     continue;
                 }
-                if let Err(err) = process_line(&line) {
+                if let Err(err) = process_line(&line, use_ast) {
                     println!("{err:?}");
                 };
             }

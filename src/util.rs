@@ -19,7 +19,7 @@ pub mod test_utils {
         match (want, got) {
             (Constant::Int(x), Object::Integer(y)) if x == y => Ok(()),
             (Constant::Bool(x), Object::Boolean(y)) if x == y => Ok(()),
-            _ => Err(format!("want: {want:?}, got: {got:?}")),
+            _ => Err(format!("want: {want:#?}, got: {got:#?}")),
         }
     }
 
@@ -39,7 +39,7 @@ pub mod test_utils {
 
         let mut compiler = Compiler::new();
         if let Err(err) = compiler.compile_program(program) {
-            panic!("compiler error: {err:?}");
+            panic!("compiler error: {err:#?}");
         };
         compiler.bytecode()
     }
