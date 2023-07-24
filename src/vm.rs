@@ -128,6 +128,14 @@ impl<State> VM<State> {
                     let result = Self::exec_bin_op(opcode, &mut stack);
                     stack.push(&Object::Integer(result))?;
                 }
+                opcodes::BANG => {
+                    let result = Self::exec_bang_op(&mut stack);
+                    stack.push(&Object::Boolean(result))?;
+                }
+                opcodes::MINUS => {
+                    let result = Self::exec_minus_op(&mut stack);
+                    stack.push(&Object::Integer(result))?;
+                }
                 opcodes::POP => {
                     stack.pop();
                 }
@@ -159,6 +167,25 @@ impl<State> VM<State> {
             },
             (Some(x), Some(y)) => panic!("invalid operation for {x} and {y}"),
             (_, _) => panic!("invalid state"),
+        }
+    }
+
+    fn exec_minus_op(stack: &mut Stack) -> i64 {
+        match stack.pop() {
+            Some(Object::Integer(x)) => -x,
+            Some(x) => panic!("invalid operation for {x}"),
+            None => panic!("invalid state"),
+        }
+    }
+
+    fn exec_bang_op(stack: &mut Stack) -> bool {
+        match stack.pop() {
+            Some(Object::Boolean(b)) => !b,
+            // Also consider null and empty string as falsy
+            Some(Object::Null) => true,
+            Some(Object::String(x)) if x == "" => true,
+            Some(_) => false,
+            None => panic!("invalid state"),
         }
     }
 
@@ -209,6 +236,10 @@ mod tests {
             ("5 * 2 + 10", Int(20)),
             ("5 + 2 * 10", Int(25)),
             ("5 * (2 + 10)", Int(60)),
+            ("-5", Int(-5)),
+            ("-10", Int(-10)),
+            ("-50 + 100 + -50", Int(0)),
+            ("(5 + 10 * 2 + 15 / 3) * 2 + -10", Int(50)),
         ])
     }
 
@@ -235,6 +266,12 @@ mod tests {
             ("(1 < 2) == false", Bool(false)),
             ("(1 > 2) == true", Bool(false)),
             ("(1 > 2) == false", Bool(true)),
+            ("!true", Bool(false)),
+            ("!false", Bool(true)),
+            ("!5", Bool(false)),
+            ("!!true", Bool(true)),
+            ("!!false", Bool(false)),
+            ("!!5", Bool(true)),
         ]);
     }
 

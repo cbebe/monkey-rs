@@ -16,6 +16,8 @@ pub mod opcodes {
     pub const EQUAL: u8 = 8;
     pub const NOT_EQUAL: u8 = 9;
     pub const GREATER_THAN: u8 = 10;
+    pub const MINUS: u8 = 11;
+    pub const BANG: u8 = 12;
 }
 
 #[derive(PartialEq, Eq)]
@@ -74,6 +76,8 @@ pub enum Opcode {
     Equal,
     NotEqual,
     GreaterThan,
+    Minus,
+    Bang,
 }
 
 impl std::fmt::Display for Opcode {
@@ -90,6 +94,8 @@ impl std::fmt::Display for Opcode {
             Self::Equal => write!(f, "OpEqual"),
             Self::NotEqual => write!(f, "OpNotEqual"),
             Self::GreaterThan => write!(f, "OpGreaterThan"),
+            Self::Minus => write!(f, "OpMinus"),
+            Self::Bang => write!(f, "OpBang"),
         }
     }
 }
@@ -108,6 +114,8 @@ impl Opcode {
             Self::Equal => (opcodes::EQUAL, 0),
             Self::NotEqual => (opcodes::NOT_EQUAL, 0),
             Self::GreaterThan => (opcodes::GREATER_THAN, 0),
+            Self::Minus => (opcodes::MINUS, 0),
+            Self::Bang => (opcodes::BANG, 0),
         }
     }
 }
@@ -129,7 +137,9 @@ pub fn make(op: Opcode) -> Instructions {
         | Opcode::False
         | Opcode::Equal
         | Opcode::NotEqual
-        | Opcode::GreaterThan => {}
+        | Opcode::GreaterThan
+        | Opcode::Minus
+        | Opcode::Bang => {}
     }
 
     v

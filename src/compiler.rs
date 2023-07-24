@@ -73,6 +73,13 @@ impl Compiler {
                 self.compile(Node::Expression(e))?;
                 self.emit(code::Opcode::Pop);
             }
+            Node::Expression(Expression::Prefix(op, e)) => {
+                self.compile(Node::Expression(*e))?;
+                match op {
+                    ast::Unary::Neg => self.emit(code::Opcode::Minus),
+                    ast::Unary::Not => self.emit(code::Opcode::Bang),
+                };
+            }
             Node::Expression(Expression::Infix(left, op, right)) => {
                 // Reverse operand emit so we can use the same instruction as GT
                 if op == ast::Binary::LT {
@@ -133,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_integer_arithmetic() {
-        use code::Opcode::{Add, Constant, Div, Equal, False, GreaterThan, Mul, NotEqual, Pop, Sub, True};
+        use code::Opcode::{Add, Constant, Div, Minus, Mul, Pop, Sub};
         use test_utils::Constant::Int;
         run_compiler_tests(vec![
             (
@@ -161,6 +168,15 @@ mod tests {
                 vec![Int(2), Int(1)],
                 make(vec![Constant(0), Constant(1), Div, Pop]),
             ),
+            ("-1", vec![Int(1)], make(vec![Constant(0), Minus, Pop])),
+        ]);
+    }
+
+    #[test]
+    fn test_boolean_expressions() {
+        use code::Opcode::{Bang, Constant, Equal, False, GreaterThan, NotEqual, Pop, True};
+        use test_utils::Constant::Int;
+        run_compiler_tests(vec![
             ("true", vec![], make(vec![True, Pop])),
             ("false", vec![], make(vec![False, Pop])),
             (
@@ -189,6 +205,7 @@ mod tests {
                 vec![],
                 make(vec![True, False, NotEqual, Pop]),
             ),
+            ("!true", vec![], make(vec![True, Bang, Pop])),
         ]);
     }
 
