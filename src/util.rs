@@ -19,7 +19,7 @@ pub mod test_utils {
         match (want, got) {
             (Constant::Int(x), Object::Integer(y)) if x == y => Ok(()),
             (Constant::Bool(x), Object::Boolean(y)) if x == y => Ok(()),
-            _ => Err(format!("want: {want:#?}, got: {got:#?}")),
+            _ => Err(format!("want: {want:?}\ngot: {got:?}")),
         }
     }
 

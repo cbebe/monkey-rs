@@ -247,7 +247,7 @@ mod tests {
             };
             let got = vm.last_popped().expect("stack value");
             if let Err(err) = test_object(got, &expected) {
-                panic!("failed test for input {input}. {err}")
+                panic!("failed test\ninput: {input}\n{err}")
             }
         }
     }

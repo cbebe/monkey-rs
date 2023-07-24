@@ -197,7 +197,7 @@ mod tests {
             let bytecode = compile_program(input);
             test_instructions(instructions, bytecode.instructions);
             if let Err(err) = test_constants(constants, bytecode.constants) {
-                panic!("failed test for input {}. {err}", &input);
+                panic!("failed test for input {}.\n{err}", &input);
             }
         }
     }
