@@ -3,6 +3,7 @@ use crate::{ast, code, object::Object};
 #[derive(Debug)]
 pub enum Node<'a> {
     Statement(ast::Statement<'a>),
+    Block(ast::BlockStatement<'a>),
     Expression(ast::Expression<'a>),
 }
 
@@ -23,9 +24,17 @@ impl<'a> std::fmt::Display for Error {
     }
 }
 
+#[derive(Clone, Copy)]
+struct EmmitedInstruction {
+    opcode: code::Opcode,
+    position: usize,
+}
+
 pub struct Compiler {
     instructions: code::Instructions,
     constants: Vec<Object>,
+    last_instruction: Option<EmmitedInstruction>,
+    previous_instruction: Option<EmmitedInstruction>,
 }
 
 pub struct Bytecode {
@@ -38,7 +47,19 @@ impl Compiler {
         Self {
             instructions: vec![],
             constants: vec![],
+            last_instruction: None,
+            previous_instruction: None,
         }
+    }
+
+    fn set_last_instruction(&mut self, op: code::Opcode, pos: usize) {
+        let previous = self.last_instruction;
+        let last = EmmitedInstruction {
+            opcode: op,
+            position: pos,
+        };
+        self.previous_instruction = previous;
+        self.last_instruction = Some(last);
     }
 
     fn add_instruction(&mut self, ins: &mut code::Instructions) -> usize {
@@ -49,7 +70,9 @@ impl Compiler {
 
     fn emit(&mut self, op: code::Opcode) -> usize {
         let mut ins = code::make(op);
-        self.add_instruction(&mut ins)
+        let pos = self.add_instruction(&mut ins);
+        self.set_last_instruction(op, pos);
+        pos
     }
 
     fn add_constant(&mut self, obj: Object) -> u16 {
@@ -60,15 +83,38 @@ impl Compiler {
     }
 
     pub fn compile_program(&mut self, program: ast::Program) -> Result<(), Error> {
-        for statement in program.0 .0 {
-            self.compile(Node::Statement(statement))?;
+        self.compile(Node::Block(program.0))
+    }
+
+    fn replace_instruction(&mut self, pos: usize, new_instruction: &[u8]) {
+        for i in 0..new_instruction.len() {
+            self.instructions[pos + i] = new_instruction[i];
         }
-        Ok(())
+    }
+
+    fn change_opcode(&mut self, pos: usize, op: code::Opcode) {
+        self.replace_instruction(pos, &code::make(op));
+    }
+
+    fn remove_last_pop(&mut self) {
+        if let Some(EmmitedInstruction {
+            opcode: code::Opcode::Pop,
+            position: pos,
+        }) = self.last_instruction
+        {
+            self.instructions = (&self.instructions[..pos]).to_vec();
+            self.last_instruction = self.previous_instruction;
+        }
     }
 
     fn compile(&mut self, node: Node) -> Result<(), Error> {
         use ast::{Expression, Literal, Statement};
         match node {
+            Node::Block(s) => {
+                for statement in s.0 {
+                    self.compile(Node::Statement(statement))?;
+                }
+            }
             Node::Statement(Statement::Expression(e)) => {
                 self.compile(Node::Expression(e))?;
                 self.emit(code::Opcode::Pop);
@@ -110,6 +156,39 @@ impl Compiler {
                 let int_obj = Object::Integer(int);
                 let idx = self.add_constant(int_obj);
                 self.emit(code::Opcode::Constant(idx));
+            }
+            Node::Expression(Expression::Literal(Literal::If(
+                condition,
+                consequence,
+                alternative,
+            ))) => {
+                self.compile(Node::Expression(*condition))?;
+                let jump_not_truthy_pos = self.emit(code::Opcode::JumpNotTruthy(9999));
+                self.compile(Node::Block(consequence))?;
+
+                self.remove_last_pop();
+
+                if let Some(alt) = alternative {
+                    let jump_pos = self.emit(code::Opcode::Jump(9999));
+
+                    let after_consequence_pos = self.instructions.len();
+                    self.change_opcode(
+                        jump_not_truthy_pos,
+                        code::Opcode::JumpNotTruthy(after_consequence_pos as u16),
+                    );
+
+                    self.compile(Node::Block(alt))?;
+                    self.remove_last_pop();
+
+                    let after_alternative_pos = self.instructions.len();
+                    self.change_opcode(jump_pos, code::Opcode::Jump(after_alternative_pos as u16));
+                } else {
+                    let after_consequence_pos = self.instructions.len();
+                    self.change_opcode(
+                        jump_not_truthy_pos,
+                        code::Opcode::JumpNotTruthy(after_consequence_pos as u16),
+                    );
+                }
             }
             e => return Err(Error::NotYetImplemented(e.to_string())),
         }
@@ -206,6 +285,54 @@ mod tests {
                 make(vec![True, False, NotEqual, Pop]),
             ),
             ("!true", vec![], make(vec![True, Bang, Pop])),
+        ]);
+    }
+
+    #[test]
+    fn test_conditionals() {
+        use code::Opcode::{Constant, Jump, JumpNotTruthy, Pop, True};
+        use test_utils::Constant::Int;
+        run_compiler_tests(vec![
+            (
+                "if (true) { 10 }; 3333;",
+                vec![Int(10), Int(3333)],
+                make(vec![
+                    // 0000
+                    True,
+                    // 0001
+                    JumpNotTruthy(7),
+                    // 0004
+                    Constant(0),
+                    // 0007
+                    Pop,
+                    // 0008
+                    Constant(1),
+                    // 0011
+                    Pop,
+                ]),
+            ),
+            (
+                "if (true) { 10 } else { 20 }; 3333;",
+                vec![Int(10), Int(20), Int(3333)],
+                make(vec![
+                    // 0000
+                    True,
+                    // 0001
+                    JumpNotTruthy(10),
+                    // 0004
+                    Constant(0),
+                    // 0007
+                    Jump(13),
+                    // 0010
+                    Constant(1),
+                    // 0013
+                    Pop,
+                    // 0014
+                    Constant(2),
+                    // 0017
+                    Pop,
+                ]),
+            ),
         ]);
     }
 

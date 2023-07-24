@@ -18,6 +18,8 @@ pub mod opcodes {
     pub const GREATER_THAN: u8 = 10;
     pub const MINUS: u8 = 11;
     pub const BANG: u8 = 12;
+    pub const JUMP_NOT_TRUTHY: u8 = 13;
+    pub const JUMP: u8 = 14;
 }
 
 #[derive(PartialEq, Eq)]
@@ -57,6 +59,16 @@ impl std::fmt::Display for Disassembled {
                 opcodes::EQUAL => writeln!(f, "{pc:04} {}", Opcode::Equal)?,
                 opcodes::NOT_EQUAL => writeln!(f, "{pc:04} {}", Opcode::NotEqual)?,
                 opcodes::GREATER_THAN => writeln!(f, "{pc:04} {}", Opcode::GreaterThan)?,
+                opcodes::JUMP_NOT_TRUTHY => {
+                    let address = rdr.read_u16::<BigEndian>().expect("u16 address");
+                    bytes_read += 2;
+                    writeln!(f, "{pc:04} {}", Opcode::JumpNotTruthy(address))?
+                }
+                opcodes::JUMP => {
+                    let address = rdr.read_u16::<BigEndian>().expect("u16 address");
+                    bytes_read += 2;
+                    writeln!(f, "{pc:04} {}", Opcode::Jump(address))?
+                }
                 op => writeln!(f, "{pc:04} unknown opcode: {op}")?,
             };
         }
@@ -78,6 +90,8 @@ pub enum Opcode {
     GreaterThan,
     Minus,
     Bang,
+    JumpNotTruthy(u16),
+    Jump(u16),
 }
 
 impl std::fmt::Display for Opcode {
@@ -96,6 +110,8 @@ impl std::fmt::Display for Opcode {
             Self::GreaterThan => write!(f, "OpGreaterThan"),
             Self::Minus => write!(f, "OpMinus"),
             Self::Bang => write!(f, "OpBang"),
+            Self::JumpNotTruthy(x) => write!(f, "OpJumpNotTruthy {x}"),
+            Self::Jump(x) => write!(f, "OpJump {x}"),
         }
     }
 }
@@ -116,6 +132,8 @@ impl Opcode {
             Self::GreaterThan => (opcodes::GREATER_THAN, 0),
             Self::Minus => (opcodes::MINUS, 0),
             Self::Bang => (opcodes::BANG, 0),
+            Self::JumpNotTruthy(_) => (opcodes::JUMP_NOT_TRUTHY, 2),
+            Self::Jump(_) => (opcodes::JUMP, 2),
         }
     }
 }
@@ -125,7 +143,7 @@ pub fn make(op: Opcode) -> Instructions {
     let mut v = Vec::with_capacity(op_len + 1);
     v.push(opcode);
     match op {
-        Opcode::Constant(x) => {
+        Opcode::Constant(x) | Opcode::JumpNotTruthy(x) | Opcode::Jump(x) => {
             v.write_u16::<BigEndian>(x).unwrap();
         }
         Opcode::Add
