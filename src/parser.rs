@@ -121,8 +121,8 @@ fn call(i: &str) -> IResult<Expression> {
 
 fn prefix(i: &str) -> IResult<Expression> {
     let (i, mut prefixes) = many0(alt((
-        map(char('-'), |_| Unary(Neg)),
-        map(char('!'), |_| Unary(Not)),
+        map(spaced(char('-')), |_| Unary(Neg)),
+        map(spaced(char('!')), |_| Unary(Not)),
     )))(i)?;
     let (i, term) = call(i)?;
     prefixes.reverse();
@@ -132,8 +132,8 @@ fn prefix(i: &str) -> IResult<Expression> {
 fn mul_div(i: &str) -> IResult<Expression> {
     let (i, initial) = prefix(i)?;
     let (i, remainder) = many0(alt((
-        map(preceded(char('*'), prefix), |mul| Binary(Mul, mul)),
-        map(preceded(char('/'), prefix), |div| Binary(Div, div)),
+        map(spaced(preceded(char('*'), prefix)), |mul| Binary(Mul, mul)),
+        map(spaced(preceded(char('/'), prefix)), |div| Binary(Div, div)),
     )))(i)?;
 
     Ok((i, fold_exprs(initial, remainder)))
@@ -142,8 +142,8 @@ fn mul_div(i: &str) -> IResult<Expression> {
 fn sum(i: &str) -> IResult<Expression> {
     let (i, initial) = mul_div(i)?;
     let (i, remainder) = many0(alt((
-        map(preceded(char('+'), mul_div), |add| Binary(Add, add)),
-        map(preceded(char('-'), mul_div), |sub| Binary(Sub, sub)),
+        map(spaced(preceded(char('+'), mul_div)), |add| Binary(Add, add)),
+        map(spaced(preceded(char('-'), mul_div)), |sub| Binary(Sub, sub)),
     )))(i)?;
 
     Ok((i, fold_exprs(initial, remainder)))
@@ -152,8 +152,8 @@ fn sum(i: &str) -> IResult<Expression> {
 fn lt_gt(i: &str) -> IResult<Expression> {
     let (i, initial) = sum(i)?;
     let (i, remainder) = many0(alt((
-        map(preceded(char('<'), sum), |lt| Binary(LT, lt)),
-        map(preceded(char('>'), sum), |gt| Binary(GT, gt)),
+        map(spaced(preceded(char('<'), sum)), |lt| Binary(LT, lt)),
+        map(spaced(preceded(char('>'), sum)), |gt| Binary(GT, gt)),
     )))(i)?;
     Ok((i, fold_exprs(initial, remainder)))
 }
@@ -161,8 +161,8 @@ fn lt_gt(i: &str) -> IResult<Expression> {
 fn expr(i: &str) -> IResult<Expression> {
     let (i, initial) = lt_gt(i)?;
     let (i, remainder) = many0(alt((
-        map(preceded(tag("=="), lt_gt), |eq| Binary(Eq, eq)),
-        map(preceded(tag("!="), lt_gt), |neq| Binary(Neq, neq)),
+        map(spaced(preceded(tag("=="), lt_gt)), |eq| Binary(Eq, eq)),
+        map(spaced(preceded(tag("!="), lt_gt)), |neq| Binary(Neq, neq)),
     )))(i)?;
     Ok((i, fold_exprs(initial, remainder)))
 }
@@ -492,6 +492,8 @@ mod tests {
             ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
             ("3 + 4", "(3 + 4)"),
             ("-5 * 5", "((-5) * 5)"),
+            ("5 * -5", "(5 * (-5))"),
+            ("-50 + 100 + -50", "(((-50) + 100) + (-50))"),
             ("5 > 4 == 3 < 4", "((5 > 4) == (3 < 4))"),
             ("5 < 4 != 3 > 4", "((5 < 4) != (3 > 4))"),
             (
@@ -515,15 +517,18 @@ mod tests {
 
         for (case, want) in cases {
             let program = parse_program(case, 1);
-            assert_matches!(&program[0], Expression(expr) if {
-                let prog = expr.to_string();
-                if prog != want {
-                    println!("case: {case}");
-                    println!("got: {prog}");
-                    println!("want: {want}");
+            match &program[0] {
+                Expression(expr) => {
+                    let prog = expr.to_string();
+                    if prog != want {
+                        println!("case: {case}");
+                        println!("got: {prog}");
+                        println!("want: {want}");
+                    }
+                    assert!(prog == want)
                 }
-                prog == want
-            });
+                _ => panic!("not an expression"),
+            }
         }
     }
 }
