@@ -168,27 +168,22 @@ impl Compiler {
 
                 self.remove_last_pop();
 
+                let jump_pos = self.emit(code::Opcode::Jump(9999));
+
+                let after_consequence_pos = self.instructions.len();
+                self.change_opcode(
+                    jump_not_truthy_pos,
+                    code::Opcode::JumpNotTruthy(after_consequence_pos as u16),
+                );
+
                 if let Some(alt) = alternative {
-                    let jump_pos = self.emit(code::Opcode::Jump(9999));
-
-                    let after_consequence_pos = self.instructions.len();
-                    self.change_opcode(
-                        jump_not_truthy_pos,
-                        code::Opcode::JumpNotTruthy(after_consequence_pos as u16),
-                    );
-
                     self.compile(Node::Block(alt))?;
                     self.remove_last_pop();
-
-                    let after_alternative_pos = self.instructions.len();
-                    self.change_opcode(jump_pos, code::Opcode::Jump(after_alternative_pos as u16));
                 } else {
-                    let after_consequence_pos = self.instructions.len();
-                    self.change_opcode(
-                        jump_not_truthy_pos,
-                        code::Opcode::JumpNotTruthy(after_consequence_pos as u16),
-                    );
+                    self.emit(code::Opcode::Null);
                 }
+                let after_alternative_pos = self.instructions.len();
+                self.change_opcode(jump_pos, code::Opcode::Jump(after_alternative_pos as u16));
             }
             e => return Err(Error::NotYetImplemented(e.to_string())),
         }
@@ -290,7 +285,7 @@ mod tests {
 
     #[test]
     fn test_conditionals() {
-        use code::Opcode::{Constant, Jump, JumpNotTruthy, Pop, True};
+        use code::Opcode::{Constant, Jump, JumpNotTruthy, Null, Pop, True};
         use test_utils::Constant::Int;
         run_compiler_tests(vec![
             (
@@ -300,14 +295,18 @@ mod tests {
                     // 0000
                     True,
                     // 0001
-                    JumpNotTruthy(7),
+                    JumpNotTruthy(10),
                     // 0004
                     Constant(0),
                     // 0007
-                    Pop,
-                    // 0008
-                    Constant(1),
+                    Jump(11),
+                    // 0010
+                    Null,
                     // 0011
+                    Pop,
+                    // 0012
+                    Constant(1),
+                    // 0015
                     Pop,
                 ]),
             ),

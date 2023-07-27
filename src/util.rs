@@ -13,12 +13,14 @@ pub mod test_utils {
     pub enum Constant {
         Int(i64),
         Bool(bool),
+        Null,
     }
 
     pub fn test_object(got: &Object, want: &Constant) -> Result<(), String> {
         match (want, got) {
             (Constant::Int(x), Object::Integer(y)) if x == y => Ok(()),
             (Constant::Bool(x), Object::Boolean(y)) if x == y => Ok(()),
+            (Constant::Null, Object::Null) => Ok(()),
             _ => Err(format!("want: {want:?}\ngot: {got:?}")),
         }
     }

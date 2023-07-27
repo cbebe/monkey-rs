@@ -8,6 +8,7 @@ const STACK_SIZE: usize = 2048;
 
 const TRUE: Object = Object::Boolean(true);
 const FALSE: Object = Object::Boolean(false);
+const NULL: Object = Object::Null;
 
 struct Stack {
     stack: Vec<Object>,
@@ -42,6 +43,10 @@ impl Stack {
         }
         self.sp += 1;
         Ok(())
+    }
+
+    fn try_pop(&mut self) -> Result<Object, Error> {
+        self.pop().ok_or(Error::EmptyStack)
     }
 
     fn pop(&mut self) -> Option<Object> {
@@ -82,8 +87,12 @@ pub struct VM<State = vm_state::Init> {
 #[derive(Debug)]
 pub enum Error {
     StackOverflow,
+    EmptyStack,
     Bytecode(std::io::Error),
     UnknownOpcode(usize, u8),
+    InvalidOp(&'static str, u8),
+    InvalidBinary(Object, Object),
+    InvalidUnary(Object),
 }
 
 impl VM {
@@ -103,7 +112,7 @@ impl<State> VM<State> {
     pub fn run(self) -> Result<VM<vm_state::Run>, Error> {
         let mut rdr = Cursor::new(&self.instructions);
         let mut stack = Stack::new();
-        let mut ip = 0;
+        let mut ip: usize = 0;
         loop {
             let opcode = match rdr.read_u8() {
                 Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
@@ -115,30 +124,44 @@ impl<State> VM<State> {
             match opcode {
                 opcodes::CONSTANT => {
                     let constant = rdr.read_u16::<BigEndian>().unwrap();
-                    stack.push(&self.constants[constant as usize])?;
                     ip += 2;
+                    stack.push(&self.constants[constant as usize])?;
                 }
                 opcodes::TRUE => stack.push(&TRUE)?,
                 opcodes::FALSE => stack.push(&FALSE)?,
                 opcodes::EQUAL | opcodes::NOT_EQUAL | opcodes::GREATER_THAN => {
-                    let result = Self::exec_cmp(opcode, &mut stack);
+                    let result = Self::exec_cmp(opcode, &mut stack)?;
                     stack.push(&Object::Boolean(result))?;
                 }
                 opcodes::ADD | opcodes::SUB | opcodes::MUL | opcodes::DIV => {
-                    let result = Self::exec_bin_op(opcode, &mut stack);
+                    let result = Self::exec_bin_op(opcode, &mut stack)?;
                     stack.push(&Object::Integer(result))?;
                 }
                 opcodes::BANG => {
-                    let result = Self::exec_bang_op(&mut stack);
+                    let result = Self::exec_bang_op(&mut stack)?;
                     stack.push(&Object::Boolean(result))?;
                 }
                 opcodes::MINUS => {
-                    let result = Self::exec_minus_op(&mut stack);
+                    let result = Self::exec_minus_op(&mut stack)?;
                     stack.push(&Object::Integer(result))?;
                 }
                 opcodes::POP => {
-                    stack.pop();
+                    stack.try_pop()?;
                 }
+                opcodes::JUMP => {
+                    ip = rdr.read_u16::<BigEndian>().unwrap().into();
+                    rdr.set_position(ip.try_into().unwrap());
+                }
+                opcodes::JUMP_NOT_TRUTHY => {
+                    let pos: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                    let condition = stack.try_pop()?;
+                    ip += 2;
+                    if !Self::is_truthy(condition) {
+                        ip = pos;
+                        rdr.set_position(ip.try_into().unwrap());
+                    }
+                }
+                opcodes::NULL => stack.push(&NULL)?,
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
         }
@@ -150,58 +173,60 @@ impl<State> VM<State> {
         })
     }
 
-    fn exec_cmp(opcode: u8, stack: &mut Stack) -> bool {
-        let right = stack.pop();
-        let left = stack.pop();
+    fn exec_cmp(opcode: u8, stack: &mut Stack) -> Result<bool, Error> {
+        let right = stack.try_pop()?;
+        let left = stack.try_pop()?;
         match (left, right) {
-            (Some(Object::Boolean(x)), Some(Object::Boolean(y))) => match opcode {
-                opcodes::EQUAL => x == y,
-                opcodes::NOT_EQUAL => x != y,
-                op => panic!("invalid op for type bool: {op:?}"),
+            (Object::Boolean(x), Object::Boolean(y)) => match opcode {
+                opcodes::EQUAL => Ok(x == y),
+                opcodes::NOT_EQUAL => Ok(x != y),
+                op => Err(Error::InvalidOp("bool", op)),
             },
-            (Some(Object::Integer(x)), Some(Object::Integer(y))) => match opcode {
-                opcodes::EQUAL => x == y,
-                opcodes::NOT_EQUAL => x != y,
-                opcodes::GREATER_THAN => x > y,
-                op => panic!("invalid op for type int: {op:?}"),
+            (Object::Integer(x), Object::Integer(y)) => match opcode {
+                opcodes::EQUAL => Ok(x == y),
+                opcodes::NOT_EQUAL => Ok(x != y),
+                opcodes::GREATER_THAN => Ok(x > y),
+                op => Err(Error::InvalidOp("int", op)),
             },
-            (Some(x), Some(y)) => panic!("invalid operation for {x} and {y}"),
-            (_, _) => panic!("invalid state"),
+            (x, y) => Err(Error::InvalidBinary(x, y)),
         }
     }
 
-    fn exec_minus_op(stack: &mut Stack) -> i64 {
-        match stack.pop() {
-            Some(Object::Integer(x)) => -x,
-            Some(x) => panic!("invalid operation for {x}"),
-            None => panic!("invalid state"),
+    fn exec_minus_op(stack: &mut Stack) -> Result<i64, Error> {
+        match stack.try_pop()? {
+            Object::Integer(x) => Ok(-x),
+            x => Err(Error::InvalidUnary(x)),
         }
     }
 
-    fn exec_bang_op(stack: &mut Stack) -> bool {
-        match stack.pop() {
-            Some(Object::Boolean(b)) => !b,
-            // Also consider null and empty string as falsy
-            Some(Object::Null) => true,
-            Some(Object::String(x)) if x == "" => true,
-            Some(_) => false,
-            None => panic!("invalid state"),
+    fn is_truthy(obj: Object) -> bool {
+        match obj {
+            Object::Boolean(b) => b,
+            // Also consider null, 0, and empty string as falsy
+            Object::Null => false,
+            Object::String(x) if x == "" => false,
+            Object::Integer(0) => false,
+            _ => true,
         }
     }
 
-    fn exec_bin_op(opcode: u8, stack: &mut Stack) -> i64 {
-        let left = stack.pop();
-        let right = stack.pop();
+    fn exec_bang_op(stack: &mut Stack) -> Result<bool, Error> {
+        let value = Self::is_truthy(stack.try_pop()?);
+        Ok(!value)
+    }
+
+    fn exec_bin_op(opcode: u8, stack: &mut Stack) -> Result<i64, Error> {
+        let left = stack.try_pop()?;
+        let right = stack.try_pop()?;
         match (left, right) {
-            (Some(Object::Integer(x)), Some(Object::Integer(y))) => match opcode {
-                opcodes::ADD => x + y,
-                opcodes::SUB => y - x,
-                opcodes::MUL => x * y,
-                opcodes::DIV => y / x,
-                _ => panic!("invalid op"),
+            (Object::Integer(x), Object::Integer(y)) => match opcode {
+                opcodes::ADD => Ok(x + y),
+                opcodes::SUB => Ok(y - x),
+                opcodes::MUL => Ok(x * y),
+                opcodes::DIV => Ok(y / x),
+                _ => Err(Error::InvalidOp("int", opcode)),
             },
-            (Some(x), Some(y)) => panic!("invalid operation for {x} and {y}"),
-            (_, _) => panic!("invalid state"),
+            (x, y) => Err(Error::InvalidBinary(x, y)),
         }
     }
 }
@@ -214,7 +239,10 @@ impl VM<vm_state::Run> {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::test_utils::{compile_program, test_object, Constant};
+    use crate::{
+        code::Disassembled,
+        util::test_utils::{compile_program, test_object, Constant},
+    };
 
     use super::VM;
 
@@ -272,15 +300,34 @@ mod tests {
             ("!!true", Bool(true)),
             ("!!false", Bool(false)),
             ("!!5", Bool(true)),
+            ("!(if (false) { 5; })", Bool(true)),
+        ]);
+    }
+
+    #[test]
+    pub fn test_conditionals() {
+        use Constant::{Int, Null};
+        run_vm_tests(vec![
+            ("if (true) { 10 }", Int(10)),
+            ("if (1) { 10 }", Int(10)),
+            ("if (1 < 2) { 10 }", Int(10)),
+            ("if (true) { 10 } else { 20 }", Int(10)),
+            ("if (false) { 10 } else { 20 } ", Int(20)),
+            ("if (1 < 2) { 10 } else { 20 }", Int(10)),
+            ("if (1 > 2) { 10 } else { 20 }", Int(20)),
+            ("if (1 > 2) { 10 }", Null),
+            ("if (false) { 10 }", Null),
+            ("if ((if (false) { 10 })) { 10 } else { 20 }", Int(20)),
         ]);
     }
 
     fn run_vm_tests(tests: Vec<Test>) {
         for (input, expected) in tests {
             let bytecode = compile_program(input);
+            let disassembly = Disassembled(bytecode.instructions.clone());
             let vm = match VM::new(bytecode).run() {
                 Ok(vm) => vm,
-                Err(err) => panic!("vm error: {err:?}"),
+                Err(err) => panic!("vm error: {err:?}\ninput: {input}\n{disassembly}"),
             };
             let got = vm.last_popped().expect("stack value");
             if let Err(err) = test_object(got, &expected) {

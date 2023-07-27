@@ -20,6 +20,7 @@ pub mod opcodes {
     pub const BANG: u8 = 12;
     pub const JUMP_NOT_TRUTHY: u8 = 13;
     pub const JUMP: u8 = 14;
+    pub const NULL: u8 = 15;
 }
 
 #[derive(PartialEq, Eq)]
@@ -49,16 +50,6 @@ impl std::fmt::Display for Disassembled {
                     bytes_read += 2;
                     writeln!(f, "{pc:04} {}", Opcode::Constant(constant))?
                 }
-                opcodes::ADD => writeln!(f, "{pc:04} {}", Opcode::Add)?,
-                opcodes::POP => writeln!(f, "{pc:04} {}", Opcode::Pop)?,
-                opcodes::SUB => writeln!(f, "{pc:04} {}", Opcode::Sub)?,
-                opcodes::MUL => writeln!(f, "{pc:04} {}", Opcode::Mul)?,
-                opcodes::DIV => writeln!(f, "{pc:04} {}", Opcode::Div)?,
-                opcodes::TRUE => writeln!(f, "{pc:04} {}", Opcode::True)?,
-                opcodes::FALSE => writeln!(f, "{pc:04} {}", Opcode::False)?,
-                opcodes::EQUAL => writeln!(f, "{pc:04} {}", Opcode::Equal)?,
-                opcodes::NOT_EQUAL => writeln!(f, "{pc:04} {}", Opcode::NotEqual)?,
-                opcodes::GREATER_THAN => writeln!(f, "{pc:04} {}", Opcode::GreaterThan)?,
                 opcodes::JUMP_NOT_TRUTHY => {
                     let address = rdr.read_u16::<BigEndian>().expect("u16 address");
                     bytes_read += 2;
@@ -69,7 +60,14 @@ impl std::fmt::Display for Disassembled {
                     bytes_read += 2;
                     writeln!(f, "{pc:04} {}", Opcode::Jump(address))?
                 }
-                op => writeln!(f, "{pc:04} unknown opcode: {op}")?,
+                op => writeln!(
+                    f,
+                    "{pc:04} {}",
+                    match Opcode::try_from(op) {
+                        Ok(code) => code.to_string(),
+                        Err(err) => format!("unknown opcode {}", err.0),
+                    }
+                )?,
             };
         }
     }
@@ -92,6 +90,36 @@ pub enum Opcode {
     Bang,
     JumpNotTruthy(u16),
     Jump(u16),
+    Null,
+}
+
+#[derive(Debug)]
+pub struct InvalidOpcode(u8);
+
+impl TryFrom<u8> for Opcode {
+    type Error = InvalidOpcode;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            opcodes::CONSTANT => Ok(Opcode::Constant(0)),
+            opcodes::ADD => Ok(Opcode::Add),
+            opcodes::POP => Ok(Opcode::Pop),
+            opcodes::SUB => Ok(Opcode::Sub),
+            opcodes::MUL => Ok(Opcode::Mul),
+            opcodes::DIV => Ok(Opcode::Div),
+            opcodes::TRUE => Ok(Opcode::True),
+            opcodes::FALSE => Ok(Opcode::False),
+            opcodes::EQUAL => Ok(Opcode::Equal),
+            opcodes::NOT_EQUAL => Ok(Opcode::NotEqual),
+            opcodes::GREATER_THAN => Ok(Opcode::GreaterThan),
+            opcodes::MINUS => Ok(Opcode::Minus),
+            opcodes::BANG => Ok(Opcode::Bang),
+            opcodes::JUMP_NOT_TRUTHY => Ok(Opcode::JumpNotTruthy(0)),
+            opcodes::JUMP => Ok(Opcode::Jump(0)),
+            opcodes::NULL => Ok(Opcode::Null),
+            op => Err(InvalidOpcode(op)),
+        }
+    }
 }
 
 impl std::fmt::Display for Opcode {
@@ -112,6 +140,7 @@ impl std::fmt::Display for Opcode {
             Self::Bang => write!(f, "OpBang"),
             Self::JumpNotTruthy(x) => write!(f, "OpJumpNotTruthy {x}"),
             Self::Jump(x) => write!(f, "OpJump {x}"),
+            Self::Null => write!(f, "OpNull"),
         }
     }
 }
@@ -134,6 +163,7 @@ impl Opcode {
             Self::Bang => (opcodes::BANG, 0),
             Self::JumpNotTruthy(_) => (opcodes::JUMP_NOT_TRUTHY, 2),
             Self::Jump(_) => (opcodes::JUMP, 2),
+            Self::Null => (opcodes::NULL, 0),
         }
     }
 }
@@ -157,7 +187,8 @@ pub fn make(op: Opcode) -> Instructions {
         | Opcode::NotEqual
         | Opcode::GreaterThan
         | Opcode::Minus
-        | Opcode::Bang => {}
+        | Opcode::Bang
+        | Opcode::Null => {}
     }
 
     v
