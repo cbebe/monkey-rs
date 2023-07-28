@@ -1,4 +1,5 @@
 use crate::{ast, code, object::Object};
+use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub enum Node<'a> {
@@ -16,9 +17,10 @@ impl<'a> std::fmt::Display for Node<'a> {
 #[derive(Debug)]
 pub enum Error {
     NotYetImplemented(String),
+    UndefinedVariable(String),
 }
 
-impl<'a> std::fmt::Display for Error {
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
@@ -35,6 +37,7 @@ pub struct Compiler {
     constants: Vec<Object>,
     last_instruction: Option<EmmitedInstruction>,
     previous_instruction: Option<EmmitedInstruction>,
+    symbol_table: SymbolTable,
 }
 
 pub struct Bytecode {
@@ -49,6 +52,7 @@ impl Compiler {
             constants: vec![],
             last_instruction: None,
             previous_instruction: None,
+            symbol_table: SymbolTable::new(),
         }
     }
 
@@ -87,9 +91,7 @@ impl Compiler {
     }
 
     fn replace_instruction(&mut self, pos: usize, new_instruction: &[u8]) {
-        for i in 0..new_instruction.len() {
-            self.instructions[pos + i] = new_instruction[i];
-        }
+        self.instructions[pos..(new_instruction.len() + pos)].copy_from_slice(new_instruction);
     }
 
     fn change_opcode(&mut self, pos: usize, op: code::Opcode) {
@@ -102,7 +104,7 @@ impl Compiler {
             position: pos,
         }) = self.last_instruction
         {
-            self.instructions = (&self.instructions[..pos]).to_vec();
+            self.instructions = self.instructions[..pos].to_vec();
             self.last_instruction = self.previous_instruction;
         }
     }
@@ -114,6 +116,11 @@ impl Compiler {
                 for statement in s.0 {
                     self.compile(Node::Statement(statement))?;
                 }
+            }
+            Node::Statement(Statement::Let(ident, expr)) => {
+                self.compile(Node::Expression(expr))?;
+                let symbol = self.symbol_table.define(ident);
+                self.emit(code::Opcode::SetGlobal(symbol.index));
             }
             Node::Statement(Statement::Expression(e)) => {
                 self.compile(Node::Expression(e))?;
@@ -185,6 +192,13 @@ impl Compiler {
                 let after_alternative_pos = self.instructions.len();
                 self.change_opcode(jump_pos, code::Opcode::Jump(after_alternative_pos as u16));
             }
+            Node::Expression(Expression::Literal(Literal::Identifier(x))) => {
+                let symbol = self
+                    .symbol_table
+                    .resolve(x)
+                    .ok_or_else(|| Error::UndefinedVariable(x.to_owned()))?;
+                self.emit(code::Opcode::GetGlobal(symbol.index));
+            }
             e => return Err(Error::NotYetImplemented(e.to_string())),
         }
         Ok(())
@@ -199,14 +213,114 @@ impl Compiler {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SymbolScope(&'static str);
+
+const GLOBAL_SCOPE: SymbolScope = SymbolScope("GLOBAL");
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Symbol {
+    name: String,
+    scope: SymbolScope,
+    index: u16,
+}
+
+struct SymbolTable {
+    store: BTreeMap<String, Symbol>,
+    num_definitions: u16,
+}
+
+impl SymbolTable {
+    fn define(&mut self, arg: &str) -> Symbol {
+        let symbol = Symbol {
+            name: arg.to_owned(),
+            index: self.num_definitions,
+            scope: GLOBAL_SCOPE,
+        };
+        self.store.insert(arg.to_owned(), symbol.clone());
+        self.num_definitions += 1;
+        return symbol;
+    }
+
+    fn resolve(&self, name: &str) -> Option<Symbol> {
+        return self.store.get(name).cloned();
+    }
+}
+
+impl SymbolTable {
+    const fn new() -> Self {
+        Self {
+            store: BTreeMap::new(),
+            num_definitions: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use crate::{
         code::{self, Disassembled, Instructions, Opcode},
         util::test_utils::{self, compile_program, test_constants},
     };
 
+    use super::{Symbol, SymbolTable, GLOBAL_SCOPE};
+
     type Test<'a> = (&'a str, Vec<test_utils::Constant>, Vec<Instructions>);
+
+    #[test]
+    fn test_define() {
+        let expected = BTreeMap::from([
+            (
+                "a".to_owned(),
+                Symbol {
+                    name: "a".to_owned(),
+                    scope: GLOBAL_SCOPE,
+                    index: 0,
+                },
+            ),
+            (
+                "b".to_owned(),
+                Symbol {
+                    name: "b".to_owned(),
+                    scope: GLOBAL_SCOPE,
+                    index: 1,
+                },
+            ),
+        ]);
+        let mut global = SymbolTable::new();
+        let a = global.define("a");
+        assert_eq!(a, expected["a"]);
+        let b = global.define("b");
+        assert_eq!(b, expected["b"]);
+    }
+
+    #[test]
+    fn test_resolve_global() {
+        let mut global = SymbolTable::new();
+        global.define("a");
+        global.define("b");
+        let expected = vec![
+            Symbol {
+                name: "a".to_owned(),
+                scope: GLOBAL_SCOPE,
+                index: 0,
+            },
+            Symbol {
+                name: "b".to_owned(),
+                scope: GLOBAL_SCOPE,
+                index: 1,
+            },
+        ];
+        for sym in expected {
+            if let Some(result) = global.resolve(&sym.name) {
+                assert_eq!(result, sym);
+            } else {
+                panic!("name {} not resolvable", sym.name)
+            }
+        }
+    }
 
     fn make(ops: Vec<Opcode>) -> Vec<Instructions> {
         ops.into_iter().map(code::make).collect()
@@ -329,6 +443,36 @@ mod tests {
                     // 0014
                     Constant(2),
                     // 0017
+                    Pop,
+                ]),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_global_let_statements() {
+        use code::Opcode::{Constant, GetGlobal, Pop, SetGlobal};
+        use test_utils::Constant::Int;
+        run_compiler_tests(vec![
+            (
+                "let one = 1; let two = 2;",
+                vec![Int(1), Int(2)],
+                make(vec![Constant(0), SetGlobal(0), Constant(1), SetGlobal(1)]),
+            ),
+            (
+                "let one = 1; one;",
+                vec![Int(1)],
+                make(vec![Constant(0), SetGlobal(0), GetGlobal(0), Pop]),
+            ),
+            (
+                "let one = 1; let two = one; two",
+                vec![Int(1)],
+                make(vec![
+                    Constant(0),
+                    SetGlobal(0),
+                    GetGlobal(0),
+                    SetGlobal(1),
+                    GetGlobal(1),
                     Pop,
                 ]),
             ),

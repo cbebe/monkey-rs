@@ -1,5 +1,9 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
-#![allow(clippy::implicit_return, clippy::question_mark_used)]
+#![allow(
+    clippy::implicit_return,
+    clippy::question_mark_used,
+    clippy::cast_possible_truncation
+)]
 
 use nom::error::VerboseError;
 use rustyline::{self, error::ReadlineError, DefaultEditor};
@@ -47,7 +51,7 @@ impl From<vm::Error> for Error {
 }
 
 #[allow(dead_code)]
-fn read_file<'a>() -> Result<(), Error> {
+fn read_file() -> Result<(), Error> {
     let args = std::env::args().collect::<Vec<String>>();
     let path = args.get(1).ok_or(Error::NoFileGiven)?;
     let program = std::fs::read_to_string(path).or(Err(Error::FileError))?;

@@ -21,6 +21,8 @@ pub mod opcodes {
     pub const JUMP_NOT_TRUTHY: u8 = 13;
     pub const JUMP: u8 = 14;
     pub const NULL: u8 = 15;
+    pub const GET_GLOBAL: u8 = 16;
+    pub const SET_GLOBAL: u8 = 17;
 }
 
 #[derive(PartialEq, Eq)]
@@ -48,17 +50,27 @@ impl std::fmt::Display for Disassembled {
                 opcodes::CONSTANT => {
                     let constant = rdr.read_u16::<BigEndian>().expect("u16 constant");
                     bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::Constant(constant))?
+                    writeln!(f, "{pc:04} {}", Opcode::Constant(constant))?;
                 }
                 opcodes::JUMP_NOT_TRUTHY => {
                     let address = rdr.read_u16::<BigEndian>().expect("u16 address");
                     bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::JumpNotTruthy(address))?
+                    writeln!(f, "{pc:04} {}", Opcode::JumpNotTruthy(address))?;
                 }
                 opcodes::JUMP => {
                     let address = rdr.read_u16::<BigEndian>().expect("u16 address");
                     bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::Jump(address))?
+                    writeln!(f, "{pc:04} {}", Opcode::Jump(address))?;
+                }
+                opcodes::GET_GLOBAL => {
+                    let constant = rdr.read_u16::<BigEndian>().expect("u16 constant");
+                    bytes_read += 2;
+                    writeln!(f, "{pc:04} {}", Opcode::GetGlobal(constant))?;
+                }
+                opcodes::SET_GLOBAL => {
+                    let constant = rdr.read_u16::<BigEndian>().expect("u16 constant");
+                    bytes_read += 2;
+                    writeln!(f, "{pc:04} {}", Opcode::SetGlobal(constant))?;
                 }
                 op => writeln!(
                     f,
@@ -91,6 +103,8 @@ pub enum Opcode {
     JumpNotTruthy(u16),
     Jump(u16),
     Null,
+    GetGlobal(u16),
+    SetGlobal(u16),
 }
 
 #[derive(Debug)]
@@ -101,22 +115,24 @@ impl TryFrom<u8> for Opcode {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            opcodes::CONSTANT => Ok(Opcode::Constant(0)),
-            opcodes::ADD => Ok(Opcode::Add),
-            opcodes::POP => Ok(Opcode::Pop),
-            opcodes::SUB => Ok(Opcode::Sub),
-            opcodes::MUL => Ok(Opcode::Mul),
-            opcodes::DIV => Ok(Opcode::Div),
-            opcodes::TRUE => Ok(Opcode::True),
-            opcodes::FALSE => Ok(Opcode::False),
-            opcodes::EQUAL => Ok(Opcode::Equal),
-            opcodes::NOT_EQUAL => Ok(Opcode::NotEqual),
-            opcodes::GREATER_THAN => Ok(Opcode::GreaterThan),
-            opcodes::MINUS => Ok(Opcode::Minus),
-            opcodes::BANG => Ok(Opcode::Bang),
-            opcodes::JUMP_NOT_TRUTHY => Ok(Opcode::JumpNotTruthy(0)),
-            opcodes::JUMP => Ok(Opcode::Jump(0)),
-            opcodes::NULL => Ok(Opcode::Null),
+            opcodes::CONSTANT => Ok(Self::Constant(0)),
+            opcodes::ADD => Ok(Self::Add),
+            opcodes::POP => Ok(Self::Pop),
+            opcodes::SUB => Ok(Self::Sub),
+            opcodes::MUL => Ok(Self::Mul),
+            opcodes::DIV => Ok(Self::Div),
+            opcodes::TRUE => Ok(Self::True),
+            opcodes::FALSE => Ok(Self::False),
+            opcodes::EQUAL => Ok(Self::Equal),
+            opcodes::NOT_EQUAL => Ok(Self::NotEqual),
+            opcodes::GREATER_THAN => Ok(Self::GreaterThan),
+            opcodes::MINUS => Ok(Self::Minus),
+            opcodes::BANG => Ok(Self::Bang),
+            opcodes::JUMP_NOT_TRUTHY => Ok(Self::JumpNotTruthy(0)),
+            opcodes::JUMP => Ok(Self::Jump(0)),
+            opcodes::NULL => Ok(Self::Null),
+            opcodes::GET_GLOBAL => Ok(Self::GetGlobal(0)),
+            opcodes::SET_GLOBAL => Ok(Self::SetGlobal(0)),
             op => Err(InvalidOpcode(op)),
         }
     }
@@ -141,6 +157,8 @@ impl std::fmt::Display for Opcode {
             Self::JumpNotTruthy(x) => write!(f, "OpJumpNotTruthy {x}"),
             Self::Jump(x) => write!(f, "OpJump {x}"),
             Self::Null => write!(f, "OpNull"),
+            Self::GetGlobal(x) => write!(f, "OpGetGlobal {x}"),
+            Self::SetGlobal(x) => write!(f, "OpSetGlobal {x}"),
         }
     }
 }
@@ -164,6 +182,8 @@ impl Opcode {
             Self::JumpNotTruthy(_) => (opcodes::JUMP_NOT_TRUTHY, 2),
             Self::Jump(_) => (opcodes::JUMP, 2),
             Self::Null => (opcodes::NULL, 0),
+            Self::GetGlobal(_) => (opcodes::GET_GLOBAL, 2),
+            Self::SetGlobal(_) => (opcodes::SET_GLOBAL, 2),
         }
     }
 }
@@ -173,7 +193,11 @@ pub fn make(op: Opcode) -> Instructions {
     let mut v = Vec::with_capacity(op_len + 1);
     v.push(opcode);
     match op {
-        Opcode::Constant(x) | Opcode::JumpNotTruthy(x) | Opcode::Jump(x) => {
+        Opcode::Constant(x)
+        | Opcode::JumpNotTruthy(x)
+        | Opcode::Jump(x)
+        | Opcode::GetGlobal(x)
+        | Opcode::SetGlobal(x) => {
             v.write_u16::<BigEndian>(x).unwrap();
         }
         Opcode::Add

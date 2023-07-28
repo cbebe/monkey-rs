@@ -203,9 +203,8 @@ impl<State> VM<State> {
         match obj {
             Object::Boolean(b) => b,
             // Also consider null, 0, and empty string as falsy
-            Object::Null => false,
-            Object::String(x) if x == "" => false,
-            Object::Integer(0) => false,
+            Object::Null | Object::Integer(0) => false,
+            Object::String(x) if x.is_empty() => false,
             _ => true,
         }
     }
@@ -268,7 +267,7 @@ mod tests {
             ("-10", Int(-10)),
             ("-50 + 100 + -50", Int(0)),
             ("(5 + 10 * 2 + 15 / 3) * 2 + -10", Int(50)),
-        ])
+        ]);
     }
 
     #[test]
