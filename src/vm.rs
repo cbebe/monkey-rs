@@ -5,6 +5,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use crate::{code::opcodes, code::Instructions, compiler::Bytecode, object::Object};
 
 const STACK_SIZE: usize = 2048;
+pub const GLOBALS_SIZE: usize = 65536;
 
 const TRUE: Object = Object::Boolean(true);
 const FALSE: Object = Object::Boolean(false);
@@ -13,6 +14,12 @@ const NULL: Object = Object::Null;
 struct Stack {
     stack: Vec<Object>,
     sp: usize,
+}
+
+impl Default for Stack {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Stack {
@@ -82,11 +89,14 @@ pub struct VM<State = vm_state::Init> {
     stack: Option<Stack>,
     #[allow(dead_code)]
     state: State,
+    #[allow(dead_code)]
+    pub globals: Option<Vec<Object>>,
 }
 
 #[derive(Debug)]
 pub enum Error {
     StackOverflow,
+    TooManyGlobals,
     EmptyStack,
     Bytecode(std::io::Error),
     UnknownOpcode(usize, u8),
@@ -104,6 +114,17 @@ impl VM {
             instructions: bytecode.instructions,
             stack: None,
             state: vm_state::Init,
+            globals: None,
+        }
+    }
+
+    pub fn with_globals(self, globals: Vec<Object>) -> Self {
+        Self {
+            globals: Some(globals),
+            constants: self.constants,
+            stack: self.stack,
+            state: self.state,
+            instructions: self.instructions,
         }
     }
 }
@@ -111,7 +132,8 @@ impl VM {
 impl<State> VM<State> {
     pub fn run(self) -> Result<VM<vm_state::Run>, Error> {
         let mut rdr = Cursor::new(&self.instructions);
-        let mut stack = Stack::new();
+        let mut stack = self.stack.unwrap_or_default();
+        let mut globals = self.globals.unwrap_or_default();
         let mut ip: usize = 0;
         loop {
             let opcode = match rdr.read_u8() {
@@ -162,6 +184,29 @@ impl<State> VM<State> {
                     }
                 }
                 opcodes::NULL => stack.push(&NULL)?,
+                opcodes::GET_GLOBAL => {
+                    let global_index: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                    ip += 2;
+                    stack.push(&globals[global_index])?;
+                }
+                opcodes::SET_GLOBAL => {
+                    let global_index: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                    ip += 2;
+                    let to_set = stack.try_pop()?;
+                    let slen = globals.len();
+                    match slen.cmp(&global_index) {
+                        cmp::Ordering::Equal => {
+                            globals.push(to_set);
+                        }
+                        cmp::Ordering::Greater => {
+                            globals[global_index] = to_set;
+                        }
+                        cmp::Ordering::Less => {
+                            // Tried pushing above the stack?? How
+                            return Err(Error::TooManyGlobals);
+                        }
+                    }
+                }
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
         }
@@ -170,6 +215,7 @@ impl<State> VM<State> {
             instructions: self.instructions,
             stack: Some(stack),
             state: vm_state::Run,
+            globals: Some(globals),
         })
     }
 
@@ -248,7 +294,7 @@ mod tests {
     type Test<'a> = (&'a str, Constant);
 
     #[test]
-    pub fn test_integer_arithmetic() {
+    fn test_integer_arithmetic() {
         use Constant::Int;
         run_vm_tests(vec![
             ("1", Int(1)),
@@ -304,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_conditionals() {
+    fn test_conditionals() {
         use Constant::{Int, Null};
         run_vm_tests(vec![
             ("if (true) { 10 }", Int(10)),
@@ -317,6 +363,16 @@ mod tests {
             ("if (1 > 2) { 10 }", Null),
             ("if (false) { 10 }", Null),
             ("if ((if (false) { 10 })) { 10 } else { 20 }", Int(20)),
+        ]);
+    }
+
+    #[test]
+    fn test_global_test_statements() {
+        use Constant::Int;
+        run_vm_tests(vec![
+            ("let one = 1; one", Int(1)),
+            ("let one = 1; let two = 2; one + two", Int(3)),
+            ("let one = 1; let two = one + one; one + two", Int(3)),
         ]);
     }
 

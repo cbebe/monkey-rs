@@ -6,7 +6,9 @@
 )]
 
 use nom::error::VerboseError;
+use object::Object;
 use rustyline::{self, error::ReadlineError, DefaultEditor};
+use vm::GLOBALS_SIZE;
 
 mod ast;
 mod code;
@@ -60,26 +62,13 @@ fn read_file() -> Result<(), Error> {
     Ok(())
 }
 
-fn process_line(line: &str, use_ast: bool) -> Result<(), Error> {
-    let (_, program) = parser::program(line)?;
-    if use_ast {
-        println!("{program:#?}");
-        return Ok(());
-    }
-    let mut comp = compiler::Compiler::new();
-    comp.compile_program(program)?;
-    let machine = vm::VM::new(comp.bytecode()).run()?;
-    let elem = machine.last_popped();
-    if let Some(obj) = elem {
-        println!("{obj}");
-    }
-    Ok(())
-}
-
 fn main() -> Result<(), Error> {
     let args = std::env::args().collect::<Vec<String>>();
     let use_ast = matches!(args.get(1).map(|e| &**e), Some("ast"));
     let mut rl = DefaultEditor::new()?;
+    let mut constants = Vec::<Object>::new();
+    let mut globals = Vec::<Object>::with_capacity(GLOBALS_SIZE);
+    let mut symbol_table = compiler::SymbolTable::new();
     loop {
         let readline = rl.readline("");
         match readline {
@@ -87,7 +76,28 @@ fn main() -> Result<(), Error> {
                 if line.is_empty() {
                     continue;
                 }
-                if let Err(err) = process_line(&line, use_ast) {
+                if let Err(err) = {
+                    let line: &str = &line;
+                    let (_, program) = parser::program(line)?;
+                    if use_ast {
+                        println!("{program:#?}");
+                    } else {
+                        // May the Rust gods forgive me
+                        let mut comp = compiler::Compiler::new()
+                            .with_state(symbol_table.clone(), constants.clone());
+                        comp.compile_program(program)?;
+                        symbol_table = comp.symbol_table.clone();
+                        let code = comp.bytecode();
+                        constants = code.constants.clone();
+                        let machine = vm::VM::new(code).with_globals(globals.clone()).run()?;
+                        globals = machine.globals.clone().unwrap();
+                        let elem = machine.last_popped();
+                        if let Some(obj) = elem {
+                            println!("{obj}");
+                        }
+                    }
+                    Ok::<(), Error>(())
+                } {
                     println!("{err:?}");
                 };
             }

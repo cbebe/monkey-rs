@@ -37,7 +37,7 @@ pub struct Compiler {
     constants: Vec<Object>,
     last_instruction: Option<EmmitedInstruction>,
     previous_instruction: Option<EmmitedInstruction>,
-    symbol_table: SymbolTable,
+    pub symbol_table: SymbolTable,
 }
 
 pub struct Bytecode {
@@ -53,6 +53,16 @@ impl Compiler {
             last_instruction: None,
             previous_instruction: None,
             symbol_table: SymbolTable::new(),
+        }
+    }
+
+    pub fn with_state(self, symbol_table: SymbolTable, constants: Vec<Object>) -> Self {
+        Self {
+            instructions: self.instructions,
+            constants,
+            last_instruction: self.last_instruction,
+            previous_instruction: self.previous_instruction,
+            symbol_table,
         }
     }
 
@@ -225,7 +235,8 @@ struct Symbol {
     index: u16,
 }
 
-struct SymbolTable {
+#[derive(Clone)]
+pub struct SymbolTable {
     store: BTreeMap<String, Symbol>,
     num_definitions: u16,
 }
@@ -239,16 +250,17 @@ impl SymbolTable {
         };
         self.store.insert(arg.to_owned(), symbol.clone());
         self.num_definitions += 1;
-        return symbol;
+
+        symbol
     }
 
     fn resolve(&self, name: &str) -> Option<Symbol> {
-        return self.store.get(name).cloned();
+        self.store.get(name).cloned()
     }
 }
 
 impl SymbolTable {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             store: BTreeMap::new(),
             num_definitions: 0,
