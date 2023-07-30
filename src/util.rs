@@ -4,6 +4,8 @@ pub fn str_vec(a: &[impl ToString]) -> Vec<String> {
 
 #[cfg(test)]
 pub mod test_utils {
+    use std::rc::Rc;
+
     use crate::{
         compiler::{Bytecode, Compiler},
         object::Object,
@@ -13,6 +15,7 @@ pub mod test_utils {
     pub enum Constant {
         Int(i64),
         Bool(bool),
+        String(Rc<str>),
         Null,
     }
 
@@ -20,6 +23,7 @@ pub mod test_utils {
         match (want, got) {
             (Constant::Int(x), Object::Integer(y)) if x == y => Ok(()),
             (Constant::Bool(x), Object::Boolean(y)) if x == y => Ok(()),
+            (Constant::String(x), Object::String(y)) if x.as_ref() == y => Ok(()),
             (Constant::Null, Object::Null) => Ok(()),
             _ => Err(format!("want: {want:?}\ngot: {got:?}")),
         }

@@ -209,6 +209,11 @@ impl Compiler {
                     .ok_or_else(|| Error::UndefinedVariable(x.to_owned()))?;
                 self.emit(code::Opcode::GetGlobal(symbol.index));
             }
+            Node::Expression(Expression::Literal(Literal::String(x))) => {
+                let str_obj = Object::String(x.to_string());
+                let idx = self.add_constant(str_obj);
+                self.emit(code::Opcode::Constant(idx));
+            }
             e => return Err(Error::NotYetImplemented(e.to_string())),
         }
         Ok(())
@@ -270,7 +275,7 @@ impl SymbolTable {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, rc::Rc};
 
     use crate::{
         code::{self, Disassembled, Instructions, Opcode},
@@ -487,6 +492,24 @@ mod tests {
                     GetGlobal(1),
                     Pop,
                 ]),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_string_expressions() {
+        use code::Opcode::{Add, Constant, Pop};
+        use test_utils::Constant::String;
+        run_compiler_tests(vec![
+            (
+                r#""monkey""#,
+                vec![String(Rc::from("monkey"))],
+                make(vec![Constant(0), Pop]),
+            ),
+            (
+                r#""mon" + "key""#,
+                vec![String(Rc::from("mon")), String(Rc::from("key"))],
+                make(vec![Constant(0), Constant(1), Add, Pop]),
             ),
         ]);
     }

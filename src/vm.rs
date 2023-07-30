@@ -157,7 +157,7 @@ impl<State> VM<State> {
                 }
                 opcodes::ADD | opcodes::SUB | opcodes::MUL | opcodes::DIV => {
                     let result = Self::exec_bin_op(opcode, &mut stack)?;
-                    stack.push(&Object::Integer(result))?;
+                    stack.push(&result)?;
                 }
                 opcodes::BANG => {
                     let result = Self::exec_bang_op(&mut stack)?;
@@ -260,16 +260,20 @@ impl<State> VM<State> {
         Ok(!value)
     }
 
-    fn exec_bin_op(opcode: u8, stack: &mut Stack) -> Result<i64, Error> {
+    fn exec_bin_op(opcode: u8, stack: &mut Stack) -> Result<Object, Error> {
         let left = stack.try_pop()?;
         let right = stack.try_pop()?;
         match (left, right) {
             (Object::Integer(x), Object::Integer(y)) => match opcode {
-                opcodes::ADD => Ok(x + y),
-                opcodes::SUB => Ok(y - x),
-                opcodes::MUL => Ok(x * y),
-                opcodes::DIV => Ok(y / x),
+                opcodes::ADD => Ok(Object::Integer(x + y)),
+                opcodes::SUB => Ok(Object::Integer(y - x)),
+                opcodes::MUL => Ok(Object::Integer(x * y)),
+                opcodes::DIV => Ok(Object::Integer(y / x)),
                 _ => Err(Error::InvalidOp("int", opcode)),
+            },
+            (Object::String(x), Object::String(y)) => match opcode {
+                opcodes::ADD => Ok(Object::String(y + &x)),
+                _ => Err(Error::InvalidOp("string", opcode)),
             },
             (x, y) => Err(Error::InvalidBinary(x, y)),
         }
@@ -284,6 +288,8 @@ impl VM<vm_state::Run> {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
     use crate::{
         code::Disassembled,
         util::test_utils::{compile_program, test_object, Constant},
@@ -373,6 +379,19 @@ mod tests {
             ("let one = 1; one", Int(1)),
             ("let one = 1; let two = 2; one + two", Int(3)),
             ("let one = 1; let two = one + one; one + two", Int(3)),
+        ]);
+    }
+
+    #[test]
+    fn test_string_expressions() {
+        use Constant::String;
+        run_vm_tests(vec![
+            (r#""monkey""#, String(Rc::from("monkey"))),
+            (r#""mon" + "key""#, String(Rc::from("monkey"))),
+            (
+                r#""mon" + "key" + "banana""#,
+                String(Rc::from("monkeybanana")),
+            ),
         ]);
     }
 
