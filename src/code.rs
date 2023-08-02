@@ -41,7 +41,10 @@ impl std::fmt::Display for Disassembled {
         loop {
             let opcode = match rdr.read_u8() {
                 Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
-                Err(e) => panic!("can't read from disassembly: err {e}"),
+                Err(e) => {
+                    writeln!(f, "can't read from disassembly: err {e}")?;
+                    return Err(std::fmt::Error);
+                }
                 Ok(opcode) => opcode,
             };
             let pc = bytes_read;
