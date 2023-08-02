@@ -1,4 +1,4 @@
-use std::{cmp, io::Cursor};
+use std::{cmp, io::Cursor, num};
 
 use byteorder::{BigEndian, ReadBytesExt};
 
@@ -37,17 +37,11 @@ impl Stack {
         let to_push = obj.clone();
         let slen = self.stack.len();
         match slen.cmp(&self.sp) {
-            cmp::Ordering::Equal => {
-                self.stack.push(to_push);
-            }
-            cmp::Ordering::Greater => {
-                self.stack[self.sp] = to_push;
-            }
-            cmp::Ordering::Less => {
-                // Tried pushing above the stack?? How
-                return Err(Error::StackOverflow);
-            }
-        }
+            cmp::Ordering::Equal => self.stack.push(to_push),
+            cmp::Ordering::Greater => self.stack[self.sp] = to_push,
+            // Tried pushing above the stack?? How
+            cmp::Ordering::Less => return Err(Error::StackOverflow),
+        };
         self.sp += 1;
         Ok(())
     }
@@ -195,17 +189,21 @@ impl<State> VM<State> {
                     let to_set = stack.try_pop()?;
                     let slen = globals.len();
                     match slen.cmp(&global_index) {
-                        cmp::Ordering::Equal => {
-                            globals.push(to_set);
-                        }
-                        cmp::Ordering::Greater => {
-                            globals[global_index] = to_set;
-                        }
-                        cmp::Ordering::Less => {
-                            // Tried pushing above the stack?? How
-                            return Err(Error::TooManyGlobals);
-                        }
+                        cmp::Ordering::Equal => globals.push(to_set),
+                        cmp::Ordering::Greater => globals[global_index] = to_set,
+                        cmp::Ordering::Less => return Err(Error::TooManyGlobals),
+                    };
+                }
+                opcodes::ARRAY => {
+                    let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                    ip += 2;
+                    // Might be bad for perf but whatevs
+                    let mut arr = Vec::<Object>::with_capacity(num_elems);
+                    for _ in 0..num_elems {
+                        arr.push(stack.try_pop()?);
                     }
+                    arr.reverse();
+                    stack.push(&Object::Array(arr))?;
                 }
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
@@ -391,6 +389,19 @@ mod tests {
             (
                 r#""mon" + "key" + "banana""#,
                 String(Rc::from("monkeybanana")),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_array_literals() {
+        use Constant::{Array, Int};
+        run_vm_tests(vec![
+            ("[]", Array(vec![])),
+            ("[1, 2, 3]", Array(vec![Int(1), Int(2), Int(3)])),
+            (
+                "[1 + 2, 3 * 4, 5 + 6]",
+                Array(vec![Int(3), Int(12), Int(11)]),
             ),
         ]);
     }

@@ -18,6 +18,7 @@ impl<'a> std::fmt::Display for Node<'a> {
 pub enum Error {
     NotYetImplemented(String),
     UndefinedVariable(String),
+    ArrayTooLong(usize),
 }
 
 impl std::fmt::Display for Error {
@@ -213,6 +214,14 @@ impl Compiler {
                 let str_obj = Object::String(x.to_string());
                 let idx = self.add_constant(str_obj);
                 self.emit(code::Opcode::Constant(idx));
+            }
+            Node::Expression(Expression::Literal(Literal::Array(arr))) => {
+                let len = arr.len();
+                let size: Result<u16, _> = len.try_into();
+                for el in arr {
+                    self.compile(Node::Expression(el))?;
+                }
+                self.emit(code::Opcode::Array(size.or(Err(Error::ArrayTooLong(len)))?));
             }
             e => return Err(Error::NotYetImplemented(e.to_string())),
         }
@@ -514,11 +523,42 @@ mod tests {
         ]);
     }
 
+    #[test]
+    fn test_array_literals() {
+        use code::Opcode::{Add, Array, Constant, Mul, Pop, Sub};
+        use test_utils::Constant::Int;
+        run_compiler_tests(vec![
+            ("[]", vec![], make(vec![Array(0), Pop])),
+            (
+                "[1, 2, 3]",
+                vec![Int(1), Int(2), Int(3)],
+                make(vec![Constant(0), Constant(1), Constant(2), Array(3), Pop]),
+            ),
+            (
+                "[1 + 2, 3 - 4, 5 * 6]",
+                vec![Int(1), Int(2), Int(3), Int(4), Int(5), Int(6)],
+                make(vec![
+                    Constant(0),
+                    Constant(1),
+                    Add,
+                    Constant(2),
+                    Constant(3),
+                    Sub,
+                    Constant(4),
+                    Constant(5),
+                    Mul,
+                    Array(3),
+                    Pop,
+                ]),
+            ),
+        ]);
+    }
+
     fn run_compiler_tests(tests: Vec<Test>) {
         for (input, constants, instructions) in tests {
             let bytecode = compile_program(input);
             test_instructions(instructions, bytecode.instructions);
-            if let Err(err) = test_constants(constants, bytecode.constants) {
+            if let Err(err) = test_constants(&constants, &bytecode.constants) {
                 panic!("failed test for input {}.\n{err}", &input);
             }
         }

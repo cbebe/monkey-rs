@@ -17,6 +17,7 @@ pub mod test_utils {
         Bool(bool),
         String(Rc<str>),
         Null,
+        Array(Vec<Constant>),
     }
 
     pub fn test_object(got: &Object, want: &Constant) -> Result<(), String> {
@@ -24,12 +25,22 @@ pub mod test_utils {
             (Constant::Int(x), Object::Integer(y)) if x == y => Ok(()),
             (Constant::Bool(x), Object::Boolean(y)) if x == y => Ok(()),
             (Constant::String(x), Object::String(y)) if x.as_ref() == y => Ok(()),
+            (Constant::Array(x), Object::Array(y)) => test_constants(x, y).map_err(|err| {
+                format!("failed array test at: {err}\nwant: {want:?}\ngot: {got:?}")
+            }),
             (Constant::Null, Object::Null) => Ok(()),
             _ => Err(format!("want: {want:?}\ngot: {got:?}")),
         }
     }
 
-    pub fn test_constants(expected: Vec<Constant>, actual: Vec<Object>) -> Result<(), String> {
+    pub fn test_constants(expected: &[Constant], actual: &[Object]) -> Result<(), String> {
+        if expected.len() != actual.len() {
+            return Err(format!(
+                "wrong number of elements. want: {}, got: {}",
+                expected.len(),
+                actual.len()
+            ));
+        }
         assert_eq!(expected.len(), actual.len());
         for (want, got) in expected.iter().zip(actual.iter()) {
             test_object(got, want)?;

@@ -23,6 +23,7 @@ pub mod opcodes {
     pub const NULL: u8 = 15;
     pub const GET_GLOBAL: u8 = 16;
     pub const SET_GLOBAL: u8 = 17;
+    pub const ARRAY: u8 = 18;
 }
 
 #[derive(PartialEq, Eq)]
@@ -75,6 +76,11 @@ impl std::fmt::Display for Disassembled {
                     bytes_read += 2;
                     writeln!(f, "{pc:04} {}", Opcode::SetGlobal(constant))?;
                 }
+                opcodes::ARRAY => {
+                    let len = rdr.read_u16::<BigEndian>().expect("u16 length");
+                    bytes_read += 2;
+                    writeln!(f, "{pc:04} {}", Opcode::Array(len))?;
+                }
                 op => writeln!(
                     f,
                     "{pc:04} {}",
@@ -108,6 +114,7 @@ pub enum Opcode {
     Null,
     GetGlobal(u16),
     SetGlobal(u16),
+    Array(u16),
 }
 
 #[derive(Debug)]
@@ -162,6 +169,7 @@ impl std::fmt::Display for Opcode {
             Self::Null => write!(f, "OpNull"),
             Self::GetGlobal(x) => write!(f, "OpGetGlobal {x}"),
             Self::SetGlobal(x) => write!(f, "OpSetGlobal {x}"),
+            Self::Array(x) => write!(f, "OpArray {x}"),
         }
     }
 }
@@ -187,6 +195,7 @@ impl Opcode {
             Self::Null => (opcodes::NULL, 0),
             Self::GetGlobal(_) => (opcodes::GET_GLOBAL, 2),
             Self::SetGlobal(_) => (opcodes::SET_GLOBAL, 2),
+            Self::Array(_) => (opcodes::ARRAY, 2),
         }
     }
 }
@@ -200,7 +209,8 @@ pub fn make(op: Opcode) -> Instructions {
         | Opcode::JumpNotTruthy(x)
         | Opcode::Jump(x)
         | Opcode::GetGlobal(x)
-        | Opcode::SetGlobal(x) => {
+        | Opcode::SetGlobal(x)
+        | Opcode::Array(x) => {
             v.write_u16::<BigEndian>(x).unwrap();
         }
         Opcode::Add
