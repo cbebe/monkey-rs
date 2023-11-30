@@ -173,14 +173,14 @@ fn fold_exprs<'a>(initial: Expression<'a>, remainder: Vec<Operator<'a>>) -> Expr
 
 fn block(i: &str) -> IResult<BlockStatement> {
     map(
-        many0(spaced(alt((
+        spaced(many0(spaced(alt((
             map(
                 keyword_stmt("let", separated_pair(identifier, spaced(char('=')), expr)),
                 |(ident, expr)| Let(ident, expr),
             ),
             map(keyword_stmt("return", expr), Return),
             map(terminated(expr, opt(char(';'))), Statement::Expression),
-        )))),
+        ))))),
         BlockStatement,
     )(i)
 }

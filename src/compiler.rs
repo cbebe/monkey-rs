@@ -207,6 +207,25 @@ impl Compiler {
             Node::Expression(Expression::Literal(Literal::Function(_params, statements))) => {
                 self.enter_scope();
                 self.compile(Node::Block(statements))?;
+
+                if let Some(EmmitedInstruction {
+                    opcode: code::Opcode::Pop,
+                    position: pos,
+                }) = self.current_scope().last_instruction
+                {
+                    self.change_opcode(pos, code::Opcode::ReturnValue);
+                    self.set_last_instruction(code::Opcode::ReturnValue, pos);
+                }
+
+                if let Some(EmmitedInstruction {
+                    opcode: code::Opcode::ReturnValue,
+                    position: _,
+                }) = self.current_scope().last_instruction
+                {
+                } else {
+                    self.emit(code::Opcode::Return);
+                }
+
                 let fn_obj = Object::Function(self.leave_scope());
                 let idx = self.add_constant(fn_obj);
                 self.emit(code::Opcode::Constant(idx));
@@ -348,7 +367,7 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use crate::{
-        code::{self, Instructions, Opcode},
+        code::{self, Disassembled, Instructions, Opcode},
         util::test_utils::{self, compile_program, test_constants, test_instructions},
     };
 
@@ -695,17 +714,47 @@ mod tests {
     fn test_functions() {
         use code::Opcode::{Add, Constant, Pop, ReturnValue};
         use test_utils::Constant::{Function, Int};
-        run_compiler_tests(vec![(
-            "fn() { return 5 + 10 }",
-            vec![
-                Int(5),
-                Int(10),
-                Function(make(vec![Constant(0), Constant(1), Add, ReturnValue])),
-            ],
-            make(vec![Constant(2), Pop]),
-        )]);
+        run_compiler_tests(vec![
+            (
+                "fn() { return 5 + 10 }",
+                vec![
+                    Int(5),
+                    Int(10),
+                    Function(make(vec![Constant(0), Constant(1), Add, ReturnValue])),
+                ],
+                make(vec![Constant(2), Pop]),
+            ),
+            (
+                "fn() { 5 + 10 }",
+                vec![
+                    Int(5),
+                    Int(10),
+                    Function(make(vec![Constant(0), Constant(1), Add, ReturnValue])),
+                ],
+                make(vec![Constant(2), Pop]),
+            ),
+            (
+                "fn() { 1; 2 }",
+                vec![
+                    Int(1),
+                    Int(2),
+                    Function(make(vec![Constant(0), Pop, Constant(1), ReturnValue])),
+                ],
+                make(vec![Constant(2), Pop]),
+            ),
+        ]);
     }
 
+    #[test]
+    fn test_functions_without_return_value() {
+        use code::Opcode::{Constant, Pop, Return};
+        use test_utils::Constant::Function;
+        run_compiler_tests(vec![(
+            "fn() { }",
+            vec![Function(make(vec![Return]))],
+            make(vec![Constant(0), Pop]),
+        )]);
+    }
     macro_rules! scope {
         ($name: ident) => {{
             $name.current_scope()
