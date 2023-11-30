@@ -25,6 +25,7 @@ pub mod opcodes {
     pub const SET_GLOBAL: u8 = 17;
     pub const ARRAY: u8 = 18;
     pub const HASH: u8 = 19;
+    pub const INDEX: u8 = 20;
 }
 
 #[derive(PartialEq, Eq)]
@@ -122,6 +123,7 @@ pub enum Opcode {
     SetGlobal(u16),
     Array(u16),
     Hash(u16),
+    Index,
 }
 
 #[derive(Debug)]
@@ -148,6 +150,7 @@ impl TryFrom<u8> for Opcode {
             opcodes::JUMP_NOT_TRUTHY => Ok(Self::JumpNotTruthy(0)),
             opcodes::JUMP => Ok(Self::Jump(0)),
             opcodes::NULL => Ok(Self::Null),
+            opcodes::INDEX => Ok(Self::Index),
             opcodes::GET_GLOBAL => Ok(Self::GetGlobal(0)),
             opcodes::SET_GLOBAL => Ok(Self::SetGlobal(0)),
             op => Err(InvalidOpcode(op)),
@@ -178,6 +181,7 @@ impl std::fmt::Display for Opcode {
             Self::SetGlobal(x) => write!(f, "OpSetGlobal {x}"),
             Self::Array(x) => write!(f, "OpArray {x}"),
             Self::Hash(x) => write!(f, "OpHash {x}"),
+            Self::Index => write!(f, "OpIndex"),
         }
     }
 }
@@ -205,6 +209,7 @@ impl Opcode {
             Self::SetGlobal(_) => (opcodes::SET_GLOBAL, 2),
             Self::Array(_) => (opcodes::ARRAY, 2),
             Self::Hash(_) => (opcodes::HASH, 2),
+            Self::Index => (opcodes::INDEX, 0),
         }
     }
 }
@@ -235,7 +240,8 @@ pub fn make(op: Opcode) -> Instructions {
         | Opcode::GreaterThan
         | Opcode::Minus
         | Opcode::Bang
-        | Opcode::Null => {}
+        | Opcode::Null
+        | Opcode::Index => {}
     }
 
     v

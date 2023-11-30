@@ -164,6 +164,11 @@ impl Compiler {
                     ast::Binary::Neq => self.emit(code::Opcode::NotEqual),
                 };
             }
+            Node::Expression(Expression::Index { left, index }) => {
+                self.compile(Node::Expression(*left))?;
+                self.compile(Node::Expression(*index))?;
+                self.emit(code::Opcode::Index);
+            }
             Node::Expression(Expression::Literal(Literal::Boolean(bool))) => {
                 self.emit(if bool {
                     code::Opcode::True
@@ -597,6 +602,43 @@ mod tests {
                     Constant(5),
                     Mul,
                     Hash(4),
+                    Pop,
+                ]),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_index_expresssions() {
+        use code::Opcode::{Add, Array, Constant, Hash, Index, Pop, Sub};
+        use test_utils::Constant::Int;
+        run_compiler_tests(vec![
+            (
+                "[1, 2, 3][1 + 1]",
+                vec![Int(1), Int(2), Int(3), Int(1), Int(1)],
+                make(vec![
+                    Constant(0),
+                    Constant(1),
+                    Constant(2),
+                    Array(3),
+                    Constant(3),
+                    Constant(4),
+                    Add,
+                    Index,
+                    Pop,
+                ]),
+            ),
+            (
+                "{1: 2}[2 - 1]",
+                vec![Int(1), Int(2), Int(2), Int(1)],
+                make(vec![
+                    Constant(0),
+                    Constant(1),
+                    Hash(2),
+                    Constant(2),
+                    Constant(3),
+                    Sub,
+                    Index,
                     Pop,
                 ]),
             ),

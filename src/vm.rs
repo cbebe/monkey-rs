@@ -6,7 +6,7 @@ use crate::{
     code::opcodes,
     code::Instructions,
     compiler::Bytecode,
-    object::{HashPair, Hashable, Object},
+    object::{HashKey, HashPair, Hashable, Object},
 };
 
 const STACK_SIZE: usize = 2048;
@@ -102,6 +102,7 @@ pub enum Error {
     InvalidOp(&'static str, u8),
     InvalidBinary(Object, Object),
     InvalidUnary(Object),
+    InvalidIndex(Object, Object),
     UnhashableType(Object),
     KeyAlreadyExists(Object),
 }
@@ -219,21 +220,37 @@ impl<State> VM<State> {
                     for _ in (0..num_elems).step_by(2) {
                         let value = stack.try_pop()?;
                         let key = stack.try_pop()?;
-                        let hash_key = match &key {
-                            Object::Integer(x) => Ok(x.hash_key()),
-                            Object::Boolean(x) => Ok(x.hash_key()),
-                            Object::String(x) => Ok(x.hash_key()),
-                            Object::Null
-                            | Object::ReturnValue(_)
-                            | Object::Array(_)
-                            | Object::Hash(_)
-                            | Object::Error(_) => Err(Error::UnhashableType(key.clone())),
-                        }?;
+                        let hash_key = Self::get_hash_key(&key)?;
                         if let Some(existing) = hash.insert(hash_key, HashPair { key, value }) {
                             return Err(Error::KeyAlreadyExists(existing.key));
                         }
                     }
                     stack.push(&Object::Hash(hash))?;
+                }
+                opcodes::INDEX => {
+                    let index = stack.try_pop()?;
+                    let left = stack.try_pop()?;
+                    match (left, &index) {
+                        (Object::Array(x), Object::Integer(i)) => {
+                            let max = x.len() as i64 - 1;
+                            stack.push(if *i < 0 || *i > max {
+                                &Object::Null
+                            } else {
+                                &x[*i as usize]
+                            })?;
+                        }
+                        (Object::Hash(x), Object::Integer(_))
+                        | (Object::Hash(x), Object::Boolean(_))
+                        | (Object::Hash(x), Object::String(_)) => {
+                            let key = Self::get_hash_key(&index)?;
+                            stack.push(if let Some(item) = x.get(&key) {
+                                &item.value
+                            } else {
+                                &Object::Null
+                            })?;
+                        }
+                        (x, i) => return Err(Error::InvalidIndex(x, i.clone())),
+                    };
                 }
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
@@ -245,6 +262,19 @@ impl<State> VM<State> {
             state: vm_state::Run,
             globals: Some(globals),
         })
+    }
+
+    fn get_hash_key(obj: &Object) -> Result<HashKey, Error> {
+        match obj {
+            Object::Integer(x) => Ok(x.hash_key()),
+            Object::Boolean(x) => Ok(x.hash_key()),
+            Object::String(x) => Ok(x.hash_key()),
+            Object::Null
+            | Object::ReturnValue(_)
+            | Object::Array(_)
+            | Object::Hash(_)
+            | Object::Error(_) => Err(Error::UnhashableType(obj.clone())),
+        }
     }
 
     fn exec_cmp(opcode: u8, stack: &mut Stack) -> Result<bool, Error> {
@@ -464,6 +494,23 @@ mod tests {
         ]);
     }
 
+    #[test]
+    fn test_index_expressions() {
+        use Constant::{Int, Null};
+        run_vm_tests(vec![
+            ("[1, 2, 3][1]", Int(2)),
+            ("[1, 2, 3][0 + 2]", Int(3)),
+            ("[[1, 1, 1]][0][0]", Int(1)),
+            ("[][0]", Null),
+            ("[1, 2, 3][99]", Null),
+            ("[1][-1]", Null),
+            ("{1: 1, 2: 2}[1]", Int(1)),
+            ("{1: 1, 2: 2}[2]", Int(2)),
+            ("{1: 1}[0]", Null),
+            ("{}[0]", Null),
+        ]);
+    }
+
     fn run_vm_tests(tests: Vec<Test>) {
         for (input, expected) in tests {
             let bytecode = compile_program(input);
@@ -472,7 +519,9 @@ mod tests {
                 Ok(vm) => vm,
                 Err(err) => panic!("vm error: {err:?}\ninput: {input}\n{disassembly}"),
             };
-            let got = vm.last_popped().expect("stack value");
+            let got = vm
+                .last_popped()
+                .expect(&format!("no stack value\ninput: {input}\n{disassembly}"));
             if let Err(err) = test_object(got, &expected) {
                 panic!("failed test\ninput: {input}\n{err}")
             }
