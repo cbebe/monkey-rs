@@ -1,8 +1,13 @@
-use std::{cmp, io::Cursor};
+use std::{cmp, collections::BTreeMap, io::Cursor};
 
 use byteorder::{BigEndian, ReadBytesExt};
 
-use crate::{code::opcodes, code::Instructions, compiler::Bytecode, object::Object};
+use crate::{
+    code::opcodes,
+    code::Instructions,
+    compiler::Bytecode,
+    object::{HashPair, Hashable, Object},
+};
 
 const STACK_SIZE: usize = 2048;
 pub const GLOBALS_SIZE: usize = 65536;
@@ -97,6 +102,8 @@ pub enum Error {
     InvalidOp(&'static str, u8),
     InvalidBinary(Object, Object),
     InvalidUnary(Object),
+    UnhashableType(Object),
+    KeyAlreadyExists(Object),
 }
 
 impl VM {
@@ -207,8 +214,26 @@ impl<State> VM<State> {
                 }
                 opcodes::HASH => {
                     let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                    let mut hash = BTreeMap::new();
                     ip += 2;
-                    todo!("bro :(")
+                    for _ in (0..num_elems).step_by(2) {
+                        let value = stack.try_pop()?;
+                        let key = stack.try_pop()?;
+                        let hash_key = match &key {
+                            Object::Integer(x) => Ok(x.hash_key()),
+                            Object::Boolean(x) => Ok(x.hash_key()),
+                            Object::String(x) => Ok(x.hash_key()),
+                            Object::Null
+                            | Object::ReturnValue(_)
+                            | Object::Array(_)
+                            | Object::Hash(_)
+                            | Object::Error(_) => Err(Error::UnhashableType(key.clone())),
+                        }?;
+                        if let Some(existing) = hash.insert(hash_key, HashPair { key, value }) {
+                            return Err(Error::KeyAlreadyExists(existing.key));
+                        }
+                    }
+                    stack.push(&Object::Hash(hash))?;
                 }
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
@@ -433,7 +458,7 @@ mod tests {
                 Hash(collection! { Int(1) => Int(2), Int(2) => Int(3) }),
             ),
             (
-                "{1 + 1: 2 * 2, 3 * 3: 4 + 4}",
+                "{1 + 1: 2 * 2, 3 + 3: 4 * 4}",
                 Hash(collection! { Int(2) => Int(4), Int(6) => Int(16) }),
             ),
         ]);
