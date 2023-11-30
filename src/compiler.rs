@@ -19,6 +19,7 @@ pub enum Error {
     NotYetImplemented(String),
     UndefinedVariable(String),
     ArrayTooLong(usize),
+    HashTooLong(usize),
 }
 
 impl std::fmt::Display for Error {
@@ -222,6 +223,15 @@ impl Compiler {
                     self.compile(Node::Expression(el))?;
                 }
                 self.emit(code::Opcode::Array(size.or(Err(Error::ArrayTooLong(len)))?));
+            }
+            Node::Expression(Expression::Literal(Literal::Hash(map))) => {
+                let len = map.len();
+                let size: Result<u16, _> = (len * 2).try_into();
+                for (k, v) in map {
+                    self.compile(Node::Expression(k))?;
+                    self.compile(Node::Expression(v))?;
+                }
+                self.emit(code::Opcode::Hash(size.or(Err(Error::HashTooLong(len)))?));
             }
             e => return Err(Error::NotYetImplemented(e.to_string())),
         }
@@ -548,6 +558,45 @@ mod tests {
                     Constant(5),
                     Mul,
                     Array(3),
+                    Pop,
+                ]),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_hash_literals() {
+        use code::Opcode::{Add, Constant, Hash, Mul, Pop};
+        use test_utils::Constant::Int;
+        run_compiler_tests(vec![
+            ("{}", vec![], make(vec![Hash(0), Pop])),
+            (
+                "{1: 2, 3: 4, 5: 6}",
+                vec![Int(1), Int(2), Int(3), Int(4), Int(5), Int(6)],
+                make(vec![
+                    Constant(0),
+                    Constant(1),
+                    Constant(2),
+                    Constant(3),
+                    Constant(4),
+                    Constant(5),
+                    Hash(6),
+                    Pop,
+                ]),
+            ),
+            (
+                "{1: 2 + 3, 4: 5 * 6}",
+                vec![Int(1), Int(2), Int(3), Int(4), Int(5), Int(6)],
+                make(vec![
+                    Constant(0),
+                    Constant(1),
+                    Constant(2),
+                    Add,
+                    Constant(3),
+                    Constant(4),
+                    Constant(5),
+                    Mul,
+                    Hash(4),
                     Pop,
                 ]),
             ),
