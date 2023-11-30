@@ -26,6 +26,9 @@ pub mod opcodes {
     pub const ARRAY: u8 = 18;
     pub const HASH: u8 = 19;
     pub const INDEX: u8 = 20;
+    pub const CALL: u8 = 21;
+    pub const RETURN_VALUE: u8 = 22;
+    pub const RETURN: u8 = 23;
 }
 
 #[derive(PartialEq, Eq)]
@@ -124,6 +127,9 @@ pub enum Opcode {
     Array(u16),
     Hash(u16),
     Index,
+    Call,
+    ReturnValue,
+    Return,
 }
 
 #[derive(Debug)]
@@ -182,6 +188,9 @@ impl std::fmt::Display for Opcode {
             Self::Array(x) => write!(f, "OpArray {x}"),
             Self::Hash(x) => write!(f, "OpHash {x}"),
             Self::Index => write!(f, "OpIndex"),
+            Self::Call => write!(f, "OpCall"),
+            Self::ReturnValue => write!(f, "OpReturnValue"),
+            Self::Return => write!(f, "OpReturn"),
         }
     }
 }
@@ -210,6 +219,9 @@ impl Opcode {
             Self::Array(_) => (opcodes::ARRAY, 2),
             Self::Hash(_) => (opcodes::HASH, 2),
             Self::Index => (opcodes::INDEX, 0),
+            Self::Call => (opcodes::CALL, 0),
+            Self::ReturnValue => (opcodes::RETURN_VALUE, 0),
+            Self::Return => (opcodes::RETURN, 0),
         }
     }
 }
@@ -241,7 +253,10 @@ pub fn make(op: Opcode) -> Instructions {
         | Opcode::Minus
         | Opcode::Bang
         | Opcode::Null
-        | Opcode::Index => {}
+        | Opcode::Index
+        | Opcode::Call
+        | Opcode::ReturnValue
+        | Opcode::Return => {}
     }
 
     v

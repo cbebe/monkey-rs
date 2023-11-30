@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::util::str_vec;
+use crate::{code::Instructions, util::str_vec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Object {
@@ -12,6 +12,7 @@ pub enum Object {
     Array(Vec<Object>),
     Hash(BTreeMap<HashKey, HashPair>),
     Error(String),
+    Function(Instructions),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -96,6 +97,7 @@ impl std::fmt::Display for Object {
                     .join(", ")
             ),
             Self::Error(x) => write!(f, "ERROR: {x}"),
+            Self::Function(x) => write!(f, "CompiledFunction[{:p}]", x),
         }
     }
 }

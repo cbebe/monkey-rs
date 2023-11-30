@@ -51,7 +51,7 @@ fn keyword_stmt<'a, O1, F>(kw: &'static str, inner: F) -> impl FnMut(&'a str) ->
 where
     F: Parser<&'a str, O1, VerboseError<&'a str>>,
 {
-    delimited(terminated(tag(kw), multispace1), inner, char(';'))
+    delimited(terminated(tag(kw), multispace1), inner, opt(char(';')))
 }
 
 fn identifier(i: &str) -> IResult<&str> {
@@ -370,6 +370,8 @@ mod tests {
         assert_matches!(&program[0], Return(Literal(Integer(5))));
         assert_matches!(&program[1], Return(Literal(Boolean(true))));
         assert_matches!(&program[2], Return(Literal(Identifier("foobar"))));
+        let program = parse_program("return 5", 1);
+        assert_matches!(&program[0], Return(Literal(Integer(5))));
     }
 
     #[test]

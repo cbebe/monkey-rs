@@ -273,7 +273,8 @@ impl<State> VM<State> {
             | Object::ReturnValue(_)
             | Object::Array(_)
             | Object::Hash(_)
-            | Object::Error(_) => Err(Error::UnhashableType(obj.clone())),
+            | Object::Error(_)
+            | Object::Function(_) => Err(Error::UnhashableType(obj.clone())),
         }
     }
 

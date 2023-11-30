@@ -1,4 +1,8 @@
-use crate::{ast, code, object::Object};
+use crate::{
+    ast,
+    code::{self, Instructions},
+    object::Object,
+};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
@@ -34,11 +38,26 @@ struct EmmitedInstruction {
     position: usize,
 }
 
-pub struct Compiler {
+#[derive(Clone)]
+struct CompilationScope {
     instructions: code::Instructions,
-    constants: Vec<Object>,
     last_instruction: Option<EmmitedInstruction>,
     previous_instruction: Option<EmmitedInstruction>,
+}
+
+impl CompilationScope {
+    pub const fn new() -> Self {
+        Self {
+            instructions: vec![],
+            last_instruction: None,
+            previous_instruction: None,
+        }
+    }
+}
+
+pub struct Compiler {
+    scopes: Vec<CompilationScope>,
+    constants: Vec<Object>,
     pub symbol_table: SymbolTable,
 }
 
@@ -48,39 +67,54 @@ pub struct Bytecode {
 }
 
 impl Compiler {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            instructions: vec![],
+            scopes: vec![CompilationScope::new()],
             constants: vec![],
-            last_instruction: None,
-            previous_instruction: None,
             symbol_table: SymbolTable::new(),
         }
     }
 
+    pub fn enter_scope(&mut self) {
+        self.scopes.push(CompilationScope::new());
+    }
+
+    pub fn leave_scope(&mut self) -> Instructions {
+        let scope = self.scopes.pop().expect("has scope");
+        scope.instructions
+    }
+
     pub fn with_state(self, symbol_table: SymbolTable, constants: Vec<Object>) -> Self {
         Self {
-            instructions: self.instructions,
+            scopes: self.scopes,
             constants,
-            last_instruction: self.last_instruction,
-            previous_instruction: self.previous_instruction,
             symbol_table,
         }
     }
 
+    fn current_scope(&self) -> &CompilationScope {
+        self.scopes.last().expect("has scope")
+    }
+
+    fn current_scope_mut(&mut self) -> &mut CompilationScope {
+        self.scopes.last_mut().expect("has scope")
+    }
+
     fn set_last_instruction(&mut self, op: code::Opcode, pos: usize) {
-        let previous = self.last_instruction;
+        let scope = self.current_scope_mut();
+        let previous = scope.last_instruction;
         let last = EmmitedInstruction {
             opcode: op,
             position: pos,
         };
-        self.previous_instruction = previous;
-        self.last_instruction = Some(last);
+        scope.previous_instruction = previous;
+        scope.last_instruction = Some(last);
     }
 
     fn add_instruction(&mut self, ins: &mut code::Instructions) -> usize {
-        let pos = self.instructions.len();
-        self.instructions.append(ins);
+        let scope = self.current_scope_mut();
+        let pos = scope.instructions.len();
+        scope.instructions.append(ins);
         pos
     }
 
@@ -103,7 +137,8 @@ impl Compiler {
     }
 
     fn replace_instruction(&mut self, pos: usize, new_instruction: &[u8]) {
-        self.instructions[pos..(new_instruction.len() + pos)].copy_from_slice(new_instruction);
+        self.current_scope_mut().instructions[pos..(new_instruction.len() + pos)]
+            .copy_from_slice(new_instruction);
     }
 
     fn change_opcode(&mut self, pos: usize, op: code::Opcode) {
@@ -111,13 +146,14 @@ impl Compiler {
     }
 
     fn remove_last_pop(&mut self) {
+        let scope = self.current_scope_mut();
         if let Some(EmmitedInstruction {
             opcode: code::Opcode::Pop,
             position: pos,
-        }) = self.last_instruction
+        }) = scope.last_instruction
         {
-            self.instructions = self.instructions[..pos].to_vec();
-            self.last_instruction = self.previous_instruction;
+            scope.instructions = scope.instructions[..pos].to_vec();
+            scope.last_instruction = scope.previous_instruction;
         }
     }
 
@@ -137,6 +173,10 @@ impl Compiler {
             Node::Statement(Statement::Expression(e)) => {
                 self.compile(Node::Expression(e))?;
                 self.emit(code::Opcode::Pop);
+            }
+            Node::Statement(Statement::Return(e)) => {
+                self.compile(Node::Expression(e))?;
+                self.emit(code::Opcode::ReturnValue);
             }
             Node::Expression(Expression::Prefix(op, e)) => {
                 self.compile(Node::Expression(*e))?;
@@ -163,6 +203,13 @@ impl Compiler {
                     ast::Binary::Eq => self.emit(code::Opcode::Equal),
                     ast::Binary::Neq => self.emit(code::Opcode::NotEqual),
                 };
+            }
+            Node::Expression(Expression::Literal(Literal::Function(_params, statements))) => {
+                self.enter_scope();
+                self.compile(Node::Block(statements))?;
+                let fn_obj = Object::Function(self.leave_scope());
+                let idx = self.add_constant(fn_obj);
+                self.emit(code::Opcode::Constant(idx));
             }
             Node::Expression(Expression::Index { left, index }) => {
                 self.compile(Node::Expression(*left))?;
@@ -194,7 +241,7 @@ impl Compiler {
 
                 let jump_pos = self.emit(code::Opcode::Jump(9999));
 
-                let after_consequence_pos = self.instructions.len();
+                let after_consequence_pos = self.current_scope_mut().instructions.len();
                 self.change_opcode(
                     jump_not_truthy_pos,
                     code::Opcode::JumpNotTruthy(after_consequence_pos as u16),
@@ -206,7 +253,7 @@ impl Compiler {
                 } else {
                     self.emit(code::Opcode::Null);
                 }
-                let after_alternative_pos = self.instructions.len();
+                let after_alternative_pos = self.current_scope_mut().instructions.len();
                 self.change_opcode(jump_pos, code::Opcode::Jump(after_alternative_pos as u16));
             }
             Node::Expression(Expression::Literal(Literal::Identifier(x))) => {
@@ -243,10 +290,9 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::missing_const_for_fn)]
     pub fn bytecode(self) -> Bytecode {
         Bytecode {
-            instructions: self.instructions,
+            instructions: self.current_scope().instructions.clone(),
             constants: self.constants,
         }
     }
@@ -302,11 +348,11 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use crate::{
-        code::{self, Disassembled, Instructions, Opcode},
-        util::test_utils::{self, compile_program, test_constants},
+        code::{self, Instructions, Opcode},
+        util::test_utils::{self, compile_program, test_constants, test_instructions},
     };
 
-    use super::{Symbol, SymbolTable, GLOBAL_SCOPE};
+    use super::{Compiler, Symbol, SymbolTable, GLOBAL_SCOPE};
 
     type Test<'a> = (&'a str, Vec<test_utils::Constant>, Vec<Instructions>);
 
@@ -645,18 +691,72 @@ mod tests {
         ]);
     }
 
+    #[test]
+    fn test_functions() {
+        use code::Opcode::{Add, Constant, Pop, ReturnValue};
+        use test_utils::Constant::{Function, Int};
+        run_compiler_tests(vec![(
+            "fn() { return 5 + 10 }",
+            vec![
+                Int(5),
+                Int(10),
+                Function(make(vec![Constant(0), Constant(1), Add, ReturnValue])),
+            ],
+            make(vec![Constant(2), Pop]),
+        )]);
+    }
+
+    macro_rules! scope {
+        ($name: ident) => {{
+            $name.current_scope()
+        }};
+    }
+
+    #[test]
+    fn test_compiler_scopes() {
+        let mut compiler = Compiler::new();
+        assert_eq!(compiler.scopes.len() - 1, 0);
+        compiler.emit(code::Opcode::Mul);
+        compiler.enter_scope();
+        assert_eq!(compiler.scopes.len() - 1, 1);
+        compiler.emit(code::Opcode::Sub);
+        assert_eq!(scope!(compiler).instructions.len(), 1);
+        let last = scope!(compiler).last_instruction.expect("last instruction");
+        match last.opcode {
+            code::Opcode::Sub => (),
+            _ => panic!("last_instruction.opcode wrong: {:?}", last.opcode),
+        }
+        compiler.leave_scope();
+        assert_eq!(compiler.scopes.len() - 1, 0);
+        compiler.emit(code::Opcode::Add);
+        assert_eq!(scope!(compiler).instructions.len(), 2);
+        let last = scope!(compiler).last_instruction.expect("last instruction");
+        match last.opcode {
+            code::Opcode::Add => (),
+            _ => panic!("last_instruction.opcode wrong: {:?}", last.opcode),
+        }
+
+        let previous = scope!(compiler)
+            .previous_instruction
+            .expect("previous instruction");
+        match previous.opcode {
+            code::Opcode::Mul => (),
+            _ => panic!("previous_instruction.opcode wrong: {:?}", last.opcode),
+        }
+    }
+
     fn run_compiler_tests(tests: Vec<Test>) {
         for (input, constants, instructions) in tests {
             let bytecode = compile_program(input);
-            test_instructions(instructions, bytecode.instructions);
+            if !test_instructions(instructions.clone(), bytecode.instructions.clone()) {
+                panic!(
+                    "failed test for input {}.\nwant: {:?}\ngot: {:?}",
+                    &input, instructions, bytecode.instructions
+                )
+            }
             if let Err(err) = test_constants(&constants, &bytecode.constants) {
                 panic!("failed test for input {}.\n{err}", &input);
             }
         }
-    }
-
-    fn test_instructions(expected: Vec<Instructions>, actual: Instructions) {
-        let expected = expected.into_iter().flatten().collect::<Instructions>();
-        assert_eq!(Disassembled(expected), Disassembled(actual));
     }
 }

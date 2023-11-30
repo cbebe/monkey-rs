@@ -7,6 +7,7 @@ pub mod test_utils {
     use std::{collections::BTreeMap, rc::Rc};
 
     use crate::{
+        code::{Disassembled, Instructions},
         compiler::{Bytecode, Compiler},
         object::{Hashable, Object},
         parser,
@@ -23,6 +24,7 @@ pub mod test_utils {
         Null,
         Array(Vec<Constant>),
         Hash(BTreeMap<Constant, Constant>),
+        Function(Vec<Instructions>),
     }
 
     pub fn test_object(got: &Object, want: &Constant) -> Result<(), String> {
@@ -47,7 +49,10 @@ pub mod test_utils {
                         Constant::Int(x) => x.hash_key(),
                         Constant::Bool(x) => x.hash_key(),
                         Constant::String(x) => x.to_string().hash_key(),
-                        Constant::Null | Constant::Array(_) | Constant::Hash(_) => {
+                        Constant::Null
+                        | Constant::Array(_)
+                        | Constant::Hash(_)
+                        | Constant::Function(_) => {
                             panic!("invalid hash test: non-hashable as key")
                         }
                     };
@@ -61,6 +66,12 @@ pub mod test_utils {
 
                 Ok(())
             }
+            (Constant::Function(x), Object::Function(y))
+                if test_instructions(x.clone(), y.clone()) =>
+            {
+                Ok(())
+            }
+
             (Constant::Null, Object::Null) => Ok(()),
             _ => Err(format!("want: {want:?}\ngot: {got:?}")),
         }
@@ -92,5 +103,10 @@ pub mod test_utils {
             panic!("compiler error: {err:#?}");
         };
         compiler.bytecode()
+    }
+
+    pub fn test_instructions(expected: Vec<Instructions>, actual: Instructions) -> bool {
+        let expected = expected.into_iter().flatten().collect::<Instructions>();
+        Disassembled(expected) == Disassembled(actual)
     }
 }
