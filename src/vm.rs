@@ -1,4 +1,4 @@
-use std::{cmp, io::Cursor, num};
+use std::{cmp, io::Cursor};
 
 use byteorder::{BigEndian, ReadBytesExt};
 
@@ -205,6 +205,11 @@ impl<State> VM<State> {
                     arr.reverse();
                     stack.push(&Object::Array(arr))?;
                 }
+                opcodes::HASH => {
+                    let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                    ip += 2;
+                    todo!("bro :(")
+                }
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
         }
@@ -294,6 +299,18 @@ mod tests {
     };
 
     use super::VM;
+
+    // https://stackoverflow.com/a/27582993
+    macro_rules! collection {
+        // map-like
+        ($($k:expr => $v:expr),* $(,)?) => {{
+            core::convert::From::from([$(($k, $v),)*])
+        }};
+        // set-like
+        ($($v:expr),* $(,)?) => {{
+            core::convert::From::from([$($v,)*])
+        }};
+    }
 
     type Test<'a> = (&'a str, Constant);
 
@@ -402,6 +419,22 @@ mod tests {
             (
                 "[1 + 2, 3 * 4, 5 + 6]",
                 Array(vec![Int(3), Int(12), Int(11)]),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_hash_literals() {
+        use Constant::{Hash, Int};
+        run_vm_tests(vec![
+            ("{}", Hash(collection! {})),
+            (
+                "{1: 2, 2: 3}",
+                Hash(collection! { Int(1) => Int(2), Int(2) => Int(3) }),
+            ),
+            (
+                "{1 + 1: 2 * 2, 3 * 3: 4 + 4}",
+                Hash(collection! { Int(2) => Int(4), Int(6) => Int(16) }),
             ),
         ]);
     }
