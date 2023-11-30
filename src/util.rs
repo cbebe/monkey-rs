@@ -60,7 +60,7 @@ pub mod test_utils {
                         test_object(&item.key, k)?;
                         test_object(&item.value, v)?;
                     } else {
-                        return Err(format!("key {:?} not found", k));
+                        return Err(format!("key {k:?} not found"));
                     }
                 }
 

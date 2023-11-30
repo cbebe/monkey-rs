@@ -215,43 +215,11 @@ impl<State> VM<State> {
                 }
                 opcodes::HASH => {
                     let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    let mut hash = BTreeMap::new();
                     ip += 2;
-                    for _ in (0..num_elems).step_by(2) {
-                        let value = stack.try_pop()?;
-                        let key = stack.try_pop()?;
-                        let hash_key = Self::get_hash_key(&key)?;
-                        if let Some(existing) = hash.insert(hash_key, HashPair { key, value }) {
-                            return Err(Error::KeyAlreadyExists(existing.key));
-                        }
-                    }
-                    stack.push(&Object::Hash(hash))?;
+                    let hash = Self::build_hash(&mut stack, num_elems)?;
+                    stack.push(&hash)?;
                 }
-                opcodes::INDEX => {
-                    let index = stack.try_pop()?;
-                    let left = stack.try_pop()?;
-                    match (left, &index) {
-                        (Object::Array(x), Object::Integer(i)) => {
-                            let max = x.len() as i64 - 1;
-                            stack.push(if *i < 0 || *i > max {
-                                &Object::Null
-                            } else {
-                                &x[*i as usize]
-                            })?;
-                        }
-                        (Object::Hash(x), Object::Integer(_))
-                        | (Object::Hash(x), Object::Boolean(_))
-                        | (Object::Hash(x), Object::String(_)) => {
-                            let key = Self::get_hash_key(&index)?;
-                            stack.push(if let Some(item) = x.get(&key) {
-                                &item.value
-                            } else {
-                                &Object::Null
-                            })?;
-                        }
-                        (x, i) => return Err(Error::InvalidIndex(x, i.clone())),
-                    };
-                }
+                opcodes::INDEX => Self::exec_index(&mut stack)?,
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
         }
@@ -262,6 +230,45 @@ impl<State> VM<State> {
             state: vm_state::Run,
             globals: Some(globals),
         })
+    }
+
+    fn build_hash(stack: &mut Stack, num_elems: usize) -> Result<Object, Error> {
+        let mut hash = BTreeMap::new();
+        for _ in (0..num_elems).step_by(2) {
+            let value = stack.try_pop()?;
+            let key = stack.try_pop()?;
+            let hash_key = Self::get_hash_key(&key)?;
+            if let Some(existing) = hash.insert(hash_key, HashPair { key, value }) {
+                return Err(Error::KeyAlreadyExists(existing.key));
+            }
+        }
+
+        Ok(Object::Hash(hash))
+    }
+
+    fn exec_index(stack: &mut Stack) -> Result<(), Error> {
+        let index = stack.try_pop()?;
+        let left = stack.try_pop()?;
+        match (left, &index) {
+            (Object::Array(x), Object::Integer(i)) => {
+                let max = x.len() as i64 - 1;
+                stack.push(if *i < 0 || *i > max {
+                    &Object::Null
+                } else {
+                    &x[*i as usize]
+                })?;
+            }
+            (Object::Hash(x), Object::Integer(_) | Object::Boolean(_) | Object::String(_)) => {
+                let key = Self::get_hash_key(&index)?;
+                stack.push(
+                    x.get(&key)
+                        .map_or_else(|| &Object::Null, |item| &item.value),
+                )?;
+            }
+            (x, i) => return Err(Error::InvalidIndex(x, i.clone())),
+        };
+
+        Ok(())
     }
 
     fn get_hash_key(obj: &Object) -> Result<HashKey, Error> {
@@ -522,7 +529,7 @@ mod tests {
             };
             let got = vm
                 .last_popped()
-                .expect(&format!("no stack value\ninput: {input}\n{disassembly}"));
+                .unwrap_or_else(|| panic!("no stack value\ninput: {input}\n{disassembly}"));
             if let Err(err) = test_object(got, &expected) {
                 panic!("failed test\ninput: {input}\n{err}")
             }

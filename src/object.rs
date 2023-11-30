@@ -27,15 +27,15 @@ pub struct HashPair {
     pub value: Object,
 }
 
-const INITIAL_STATE: u64 = 0xcbf29ce484222325;
-const PRIME: u64 = 0x100000001b3;
+const INITIAL_STATE: u64 = 0xcbf2_9ce4_8422_2325;
+const PRIME: u64 = 0x0100_0000_01b3;
 
 #[inline]
 pub const fn fnv_hash(bytes: &[u8]) -> u64 {
     let mut hash = INITIAL_STATE;
     let mut i = 0;
     while i < bytes.len() {
-        hash = hash ^ (bytes[i] as u64);
+        hash ^= bytes[i] as u64;
         hash = hash.wrapping_mul(PRIME);
         i += 1;
     }
@@ -59,7 +59,7 @@ impl Hashable for bool {
     fn hash_key(&self) -> HashKey {
         HashKey {
             object_type: "BOOL",
-            value: *self as u64,
+            value: u64::from(*self),
         }
     }
 }
@@ -97,7 +97,7 @@ impl std::fmt::Display for Object {
                     .join(", ")
             ),
             Self::Error(x) => write!(f, "ERROR: {x}"),
-            Self::Function(x) => write!(f, "CompiledFunction[{:p}]", x),
+            Self::Function(x) => write!(f, "CompiledFunction[{x:p}]"),
         }
     }
 }

@@ -527,7 +527,7 @@ mod tests {
                         println!("got: {prog}");
                         println!("want: {want}");
                     }
-                    assert!(prog == want)
+                    assert!(prog == want);
                 }
                 _ => panic!("not an expression"),
             }

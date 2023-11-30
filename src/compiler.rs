@@ -157,54 +157,30 @@ impl Compiler {
         }
     }
 
-    fn compile(&mut self, node: Node) -> Result<(), Error> {
-        use ast::{Expression, Literal, Statement};
-        match node {
-            Node::Block(s) => {
-                for statement in s.0 {
-                    self.compile(Node::Statement(statement))?;
-                }
-            }
-            Node::Statement(Statement::Let(ident, expr)) => {
+    fn compile_statement(&mut self, stmt: ast::Statement) -> Result<(), Error> {
+        use ast::Statement;
+        match stmt {
+            Statement::Let(ident, expr) => {
                 self.compile(Node::Expression(expr))?;
                 let symbol = self.symbol_table.define(ident);
                 self.emit(code::Opcode::SetGlobal(symbol.index));
             }
-            Node::Statement(Statement::Expression(e)) => {
+            Statement::Expression(e) => {
                 self.compile(Node::Expression(e))?;
                 self.emit(code::Opcode::Pop);
             }
-            Node::Statement(Statement::Return(e)) => {
+            Statement::Return(e) => {
                 self.compile(Node::Expression(e))?;
                 self.emit(code::Opcode::ReturnValue);
             }
-            Node::Expression(Expression::Prefix(op, e)) => {
-                self.compile(Node::Expression(*e))?;
-                match op {
-                    ast::Unary::Neg => self.emit(code::Opcode::Minus),
-                    ast::Unary::Not => self.emit(code::Opcode::Bang),
-                };
-            }
-            Node::Expression(Expression::Infix(left, op, right)) => {
-                // Reverse operand emit so we can use the same instruction as GT
-                if op == ast::Binary::LT {
-                    self.compile(Node::Expression(*right))?;
-                    self.compile(Node::Expression(*left))?;
-                } else {
-                    self.compile(Node::Expression(*left))?;
-                    self.compile(Node::Expression(*right))?;
-                }
-                match op {
-                    ast::Binary::Add => self.emit(code::Opcode::Add),
-                    ast::Binary::Sub => self.emit(code::Opcode::Sub),
-                    ast::Binary::Mul => self.emit(code::Opcode::Mul),
-                    ast::Binary::Div => self.emit(code::Opcode::Div),
-                    ast::Binary::LT | ast::Binary::GT => self.emit(code::Opcode::GreaterThan),
-                    ast::Binary::Eq => self.emit(code::Opcode::Equal),
-                    ast::Binary::Neq => self.emit(code::Opcode::NotEqual),
-                };
-            }
-            Node::Expression(Expression::Literal(Literal::Function(_params, statements))) => {
+        }
+        Ok(())
+    }
+
+    fn compile_literal(&mut self, lit: ast::Literal) -> Result<(), Error> {
+        use ast::Literal;
+        match lit {
+            Literal::Function(_params, statements) => {
                 self.enter_scope();
                 self.compile(Node::Block(statements))?;
 
@@ -230,28 +206,19 @@ impl Compiler {
                 let idx = self.add_constant(fn_obj);
                 self.emit(code::Opcode::Constant(idx));
             }
-            Node::Expression(Expression::Index { left, index }) => {
-                self.compile(Node::Expression(*left))?;
-                self.compile(Node::Expression(*index))?;
-                self.emit(code::Opcode::Index);
-            }
-            Node::Expression(Expression::Literal(Literal::Boolean(bool))) => {
+            Literal::Boolean(bool) => {
                 self.emit(if bool {
                     code::Opcode::True
                 } else {
                     code::Opcode::False
                 });
             }
-            Node::Expression(Expression::Literal(Literal::Integer(int))) => {
+            Literal::Integer(int) => {
                 let int_obj = Object::Integer(int);
                 let idx = self.add_constant(int_obj);
                 self.emit(code::Opcode::Constant(idx));
             }
-            Node::Expression(Expression::Literal(Literal::If(
-                condition,
-                consequence,
-                alternative,
-            ))) => {
+            Literal::If(condition, consequence, alternative) => {
                 self.compile(Node::Expression(*condition))?;
                 let jump_not_truthy_pos = self.emit(code::Opcode::JumpNotTruthy(9999));
                 self.compile(Node::Block(consequence))?;
@@ -275,19 +242,19 @@ impl Compiler {
                 let after_alternative_pos = self.current_scope_mut().instructions.len();
                 self.change_opcode(jump_pos, code::Opcode::Jump(after_alternative_pos as u16));
             }
-            Node::Expression(Expression::Literal(Literal::Identifier(x))) => {
+            Literal::Identifier(x) => {
                 let symbol = self
                     .symbol_table
                     .resolve(x)
                     .ok_or_else(|| Error::UndefinedVariable(x.to_owned()))?;
                 self.emit(code::Opcode::GetGlobal(symbol.index));
             }
-            Node::Expression(Expression::Literal(Literal::String(x))) => {
+            Literal::String(x) => {
                 let str_obj = Object::String(x.to_string());
                 let idx = self.add_constant(str_obj);
                 self.emit(code::Opcode::Constant(idx));
             }
-            Node::Expression(Expression::Literal(Literal::Array(arr))) => {
+            Literal::Array(arr) => {
                 let len = arr.len();
                 let size: Result<u16, _> = len.try_into();
                 for el in arr {
@@ -295,7 +262,7 @@ impl Compiler {
                 }
                 self.emit(code::Opcode::Array(size.or(Err(Error::ArrayTooLong(len)))?));
             }
-            Node::Expression(Expression::Literal(Literal::Hash(map))) => {
+            Literal::Hash(map) => {
                 let len = map.len();
                 let size: Result<u16, _> = (len * 2).try_into();
                 for (k, v) in map {
@@ -304,8 +271,60 @@ impl Compiler {
                 }
                 self.emit(code::Opcode::Hash(size.or(Err(Error::HashTooLong(len)))?));
             }
-            e => return Err(Error::NotYetImplemented(e.to_string())),
         }
+        Ok(())
+    }
+
+    fn compile_expr(&mut self, expr: ast::Expression) -> Result<(), Error> {
+        use ast::Expression;
+        match expr {
+            Expression::Prefix(op, e) => {
+                self.compile(Node::Expression(*e))?;
+                match op {
+                    ast::Unary::Neg => self.emit(code::Opcode::Minus),
+                    ast::Unary::Not => self.emit(code::Opcode::Bang),
+                };
+            }
+            Expression::Infix(left, op, right) => {
+                // Reverse operand emit so we can use the same instruction as GT
+                if op == ast::Binary::LT {
+                    self.compile(Node::Expression(*right))?;
+                    self.compile(Node::Expression(*left))?;
+                } else {
+                    self.compile(Node::Expression(*left))?;
+                    self.compile(Node::Expression(*right))?;
+                }
+                match op {
+                    ast::Binary::Add => self.emit(code::Opcode::Add),
+                    ast::Binary::Sub => self.emit(code::Opcode::Sub),
+                    ast::Binary::Mul => self.emit(code::Opcode::Mul),
+                    ast::Binary::Div => self.emit(code::Opcode::Div),
+                    ast::Binary::LT | ast::Binary::GT => self.emit(code::Opcode::GreaterThan),
+                    ast::Binary::Eq => self.emit(code::Opcode::Equal),
+                    ast::Binary::Neq => self.emit(code::Opcode::NotEqual),
+                };
+            }
+            Expression::Literal(l) => self.compile_literal(l)?,
+            Expression::Index { left, index } => {
+                self.compile(Node::Expression(*left))?;
+                self.compile(Node::Expression(*index))?;
+                self.emit(code::Opcode::Index);
+            }
+            e => return Err(Error::NotYetImplemented(e.to_string())),
+        };
+        Ok(())
+    }
+
+    fn compile(&mut self, node: Node) -> Result<(), Error> {
+        match node {
+            Node::Block(s) => {
+                for statement in s.0 {
+                    self.compile(Node::Statement(statement))?;
+                }
+            }
+            Node::Statement(s) => self.compile_statement(s)?,
+            Node::Expression(e) => self.compile_expr(e)?,
+        };
         Ok(())
     }
 
@@ -367,7 +386,7 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use crate::{
-        code::{self, Disassembled, Instructions, Opcode},
+        code::{self, Instructions, Opcode},
         util::test_utils::{self, compile_program, test_constants, test_instructions},
     };
 
@@ -797,12 +816,13 @@ mod tests {
     fn run_compiler_tests(tests: Vec<Test>) {
         for (input, constants, instructions) in tests {
             let bytecode = compile_program(input);
-            if !test_instructions(instructions.clone(), bytecode.instructions.clone()) {
-                panic!(
-                    "failed test for input {}.\nwant: {:?}\ngot: {:?}",
-                    &input, instructions, bytecode.instructions
-                )
-            }
+            assert!(
+                test_instructions(instructions.clone(), bytecode.instructions.clone()),
+                "failed test for input {}.\nwant: {:?}\ngot: {:?}",
+                &input,
+                instructions,
+                bytecode.instructions
+            );
             if let Err(err) = test_constants(&constants, &bytecode.constants) {
                 panic!("failed test for input {}.\n{err}", &input);
             }
