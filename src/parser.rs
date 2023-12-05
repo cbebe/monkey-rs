@@ -1,203 +1,231 @@
-use crate::ast::{
-    self, Expression, Literal,
-    Operator::{self, Binary},
-    Program, Statement, Unary,
-};
-use nom::{
-    branch::alt,
-    bytes::complete::{is_not, tag},
-    character::complete::{alpha1, alphanumeric1, char, digit1, multispace0, multispace1},
-    combinator::{cut, map, map_res, opt, recognize, verify},
-    error::{context, VerboseError},
-    multi::{many0, many0_count, separated_list0},
-    sequence::{delimited, pair, preceded, separated_pair, terminated},
-    Parser,
-};
-
-type IResult<'a, O1> = nom::IResult<&'a str, O1, VerboseError<&'a str>>;
-
-macro_rules! wrapper {
-    ($name: ident, $left: expr, $right: expr) => {
-        fn $name<'a, O1, F>(inner: F) -> impl FnMut(&'a str) -> IResult<O1>
-        where
-            F: Parser<&'a str, O1, VerboseError<&'a str>>,
-        {
-            delimited($left, inner, $right)
-        }
-    };
-    ($name: ident, $sep: expr) => {
-        wrapper!($name, $sep, $sep);
-    };
-}
-
-wrapper!(spaced, multispace0);
-wrapper!(quotes, char('"'));
-wrapper!(parens, char('('), char(')'));
-wrapper!(squarely, char('['), char(']'));
-wrapper!(squirly, char('{'), char('}'));
-
-fn keyword0<'a, O1, F>(kw: &'static str, inner: F) -> impl FnMut(&'a str) -> IResult<O1>
-where
-    F: Parser<&'a str, O1, VerboseError<&'a str>>,
-{
-    preceded(terminated(tag(kw), multispace0), inner)
-}
-
-fn keyword_stmt<'a, O1, F>(kw: &'static str, inner: F) -> impl FnMut(&'a str) -> IResult<O1>
-where
-    F: Parser<&'a str, O1, VerboseError<&'a str>>,
-{
-    delimited(terminated(tag(kw), multispace1), inner, opt(char(';')))
-}
-
-fn identifier(i: &str) -> IResult<&str> {
-    recognize(pair(
-        alt((alpha1, tag("_"))),
-        many0_count(alt((alphanumeric1, tag("_")))),
-    ))(i)
-}
-
-fn if_literal(i: &str) -> IResult<ast::Literal> {
-    let (i, cond) = context("if expr", keyword0("if", cut(parens(expr))))(i)?;
-    let (i, consequence) = context("consequence", spaced(squirly(cut(block))))(i)?;
-    let (i, alternative) = opt(spaced(context(
-        "else",
-        keyword0("else", squirly(cut(block))),
-    )))(i)?;
-    Ok((i, Literal::If(Box::new(cond), consequence, alternative)))
-}
-
-fn fn_literal(i: &str) -> IResult<ast::Literal> {
-    let (i, args) = context(
-        "function",
-        keyword0(
-            "fn",
-            cut(parens(separated_list0(char(','), spaced(identifier)))),
-        ),
-    )(i)?;
-    let (i, body) = spaced(squirly(block))(i)?;
-    Ok((i, Literal::Function(args, body)))
-}
-
-fn hash_literal(i: &str) -> IResult<ast::Literal> {
-    let (i, pairs) = squirly(separated_list0(
-        char(','),
-        separated_pair(expr, char(':'), expr),
-    ))(i)?;
-    Ok((i, Literal::Hash(pairs.into_iter().collect())))
-}
-
-fn literal(i: &str) -> IResult<Expression> {
-    map(
-        alt((
-            if_literal,
-            fn_literal,
-            map(squarely(separated_list0(char(','), expr)), Literal::Array),
-            hash_literal,
-            map_res(digit1, |int: &str| int.parse::<i64>().map(Literal::Integer)),
-            map(recognize(alt((tag("true"), tag("false")))), |b| {
-                Literal::Boolean(b == "true")
-            }),
-            // No escaped characters, classic
-            |i| {
-                let (i, s) = quotes(verify(is_not("\""), |s: &str| !s.is_empty()))(i)?;
-                Ok((i, Literal::String(s)))
-            },
-            map(identifier, Literal::Identifier),
-        )),
-        Expression::Literal,
-    )(i)
-}
-
-fn index(i: &str) -> IResult<Expression> {
-    let (i, term) = spaced(alt((literal, parens(expr))))(i)?;
-    let (i, args) = many0(spaced(squarely(map(expr, Operator::Index))))(i)?;
-    Ok((i, fold_exprs(term, args)))
-}
-
-fn call(i: &str) -> IResult<Expression> {
-    let (i, term) = index(i)?;
-    let (i, args) = many0(spaced(parens(map(
-        separated_list0(char(','), expr),
-        Operator::Call,
-    ))))(i)?;
-    Ok((i, fold_exprs(term, args)))
-}
-
-fn prefix(i: &str) -> IResult<Expression> {
-    let (i, mut prefixes) = many0(alt((
-        map(spaced(char('-')), |_| Operator::Unary(Unary::Neg)),
-        map(spaced(char('!')), |_| Operator::Unary(Unary::Not)),
-    )))(i)?;
-    let (i, term) = call(i)?;
-    prefixes.reverse();
-    Ok((i, fold_exprs(term, prefixes)))
-}
-
-fn mul_div(i: &str) -> IResult<Expression> {
-    use ast::Binary::{Div, Mul};
-    let (i, initial) = prefix(i)?;
-    let (i, remainder) = many0(alt((
-        map(spaced(preceded(char('*'), prefix)), |mul| Binary(Mul, mul)),
-        map(spaced(preceded(char('/'), prefix)), |div| Binary(Div, div)),
-    )))(i)?;
-
-    Ok((i, fold_exprs(initial, remainder)))
-}
-
-fn sum(i: &str) -> IResult<Expression> {
-    use ast::Binary::{Add, Sub};
-    let (i, initial) = mul_div(i)?;
-    let (i, remainder) = many0(alt((
-        map(spaced(preceded(char('+'), mul_div)), |add| Binary(Add, add)),
-        map(spaced(preceded(char('-'), mul_div)), |sub| Binary(Sub, sub)),
-    )))(i)?;
-
-    Ok((i, fold_exprs(initial, remainder)))
-}
-
-fn lt_gt(i: &str) -> IResult<Expression> {
-    use ast::Binary::{GT, LT};
-    let (i, initial) = sum(i)?;
-    let (i, remainder) = many0(alt((
-        map(spaced(preceded(char('<'), sum)), |lt| Binary(LT, lt)),
-        map(spaced(preceded(char('>'), sum)), |gt| Binary(GT, gt)),
-    )))(i)?;
-    Ok((i, fold_exprs(initial, remainder)))
-}
-
-fn expr(i: &str) -> IResult<Expression> {
-    use ast::Binary::{Eq, Neq};
-    let (i, initial) = lt_gt(i)?;
-    let (i, remainder) = many0(alt((
-        map(spaced(preceded(tag("=="), lt_gt)), |eq| Binary(Eq, eq)),
-        map(spaced(preceded(tag("!="), lt_gt)), |neq| Binary(Neq, neq)),
-    )))(i)?;
-    Ok((i, fold_exprs(initial, remainder)))
-}
-
-fn fold_exprs<'a>(initial: Expression<'a>, remainder: Vec<Operator<'a>>) -> Expression<'a> {
-    remainder.into_iter().fold(initial, |acc, op| op.fold(acc))
-}
-
-fn block(i: &str) -> IResult<ast::BlockStatement> {
-    map(
-        spaced(many0(spaced(alt((
-            map(
-                keyword_stmt("let", separated_pair(identifier, spaced(char('=')), expr)),
-                |(ident, expr)| Statement::Let(ident, expr),
-            ),
-            map(keyword_stmt("return", expr), Statement::Return),
-            map(terminated(expr, opt(char(';'))), Statement::Expression),
-        ))))),
-        ast::BlockStatement,
-    )(i)
-}
+type IResult<'a, O1> = nom::IResult<&'a str, O1, nom::error::VerboseError<&'a str>>;
 
 /// # Errors
 /// Nom parser error
-pub fn program(i: &str) -> IResult<Program> {
-    map(block, Program)(i)
+pub fn program(i: &str) -> IResult<crate::ast::Program> {
+    nom::combinator::map(statement::block, crate::ast::Program)(i)
+}
+
+mod statement {
+    use super::{expr::expr, literal::identifier, wrap::spaced, IResult};
+    use crate::ast::{self, Statement};
+    use nom::{
+        branch::alt,
+        bytes::complete::tag,
+        character::complete::{char, multispace1},
+        combinator::{map, opt},
+        error::VerboseError,
+        multi::many0,
+        sequence::{delimited, separated_pair, terminated},
+        Parser,
+    };
+
+    fn keyword_stmt<'a, O1, F>(kw: &'static str, inner: F) -> impl FnMut(&'a str) -> IResult<O1>
+    where
+        F: Parser<&'a str, O1, VerboseError<&'a str>>,
+    {
+        delimited(terminated(tag(kw), multispace1), inner, opt(char(';')))
+    }
+
+    pub fn block(i: &str) -> IResult<ast::BlockStatement> {
+        map(
+            spaced(many0(spaced(alt((
+                map(
+                    keyword_stmt("let", separated_pair(identifier, spaced(char('=')), expr)),
+                    |(ident, expr)| Statement::Let(ident, expr),
+                ),
+                map(keyword_stmt("return", expr), Statement::Return),
+                map(terminated(expr, opt(char(';'))), Statement::Expression),
+            ))))),
+            ast::BlockStatement,
+        )(i)
+    }
+}
+
+mod wrap {
+    use super::IResult;
+    use nom::character::complete::{char, multispace0};
+    use nom::{error::VerboseError, sequence::delimited, Parser};
+
+    macro_rules! wrapper {
+        ($name: ident, $left: expr, $right: expr) => {
+            pub fn $name<'a, O1, F>(inner: F) -> impl FnMut(&'a str) -> IResult<O1>
+            where
+                F: Parser<&'a str, O1, VerboseError<&'a str>>,
+            {
+                delimited($left, inner, $right)
+            }
+        };
+        ($name: ident, $sep: expr) => {
+            wrapper!($name, $sep, $sep);
+        };
+    }
+
+    wrapper!(spaced, multispace0);
+    wrapper!(quotes, char('"'));
+    wrapper!(parens, char('('), char(')'));
+    wrapper!(squarely, char('['), char(']'));
+    wrapper!(squirly, char('{'), char('}'));
+}
+
+mod literal {
+    use super::{
+        expr::expr,
+        statement::block,
+        wrap::{parens, quotes, spaced, squarely, squirly},
+        IResult,
+    };
+    use crate::ast::{self, Expression, Literal};
+
+    use nom::{
+        branch::alt,
+        bytes::complete::{is_not, tag},
+        character::complete::{alpha1, alphanumeric1, char, digit1, multispace0},
+        combinator::{self, recognize},
+        combinator::{cut, map, map_res, opt},
+        error::{context, VerboseError},
+        multi::{many0_count, separated_list0},
+        sequence::preceded,
+        sequence::{pair, separated_pair, terminated},
+        Parser,
+    };
+
+    fn keyword0<'a, O1, F>(kw: &'static str, inner: F) -> impl FnMut(&'a str) -> IResult<O1>
+    where
+        F: Parser<&'a str, O1, VerboseError<&'a str>>,
+    {
+        preceded(terminated(tag(kw), multispace0), inner)
+    }
+
+    pub fn identifier(i: &str) -> IResult<&str> {
+        recognize(pair(
+            alt((alpha1, tag("_"))),
+            many0_count(alt((alphanumeric1, tag("_")))),
+        ))(i)
+    }
+
+    fn if_literal(i: &str) -> IResult<ast::Literal> {
+        let (i, cond) = context("if expr", keyword0("if", cut(parens(expr))))(i)?;
+        let (i, consequence) = context("consequence", spaced(squirly(cut(block))))(i)?;
+        let (i, alternative) = opt(spaced(context(
+            "else",
+            keyword0("else", squirly(cut(block))),
+        )))(i)?;
+        Ok((i, Literal::If(Box::new(cond), consequence, alternative)))
+    }
+
+    fn fn_literal(i: &str) -> IResult<ast::Literal> {
+        let (i, args) = context(
+            "function",
+            keyword0(
+                "fn",
+                cut(parens(separated_list0(char(','), spaced(identifier)))),
+            ),
+        )(i)?;
+        let (i, body) = spaced(squirly(block))(i)?;
+        Ok((i, Literal::Function(args, body)))
+    }
+
+    fn hash_literal(i: &str) -> IResult<ast::Literal> {
+        let (i, pairs) = squirly(separated_list0(
+            char(','),
+            separated_pair(expr, char(':'), expr),
+        ))(i)?;
+        Ok((i, Literal::Hash(pairs.into_iter().collect())))
+    }
+
+    fn string_literal(i: &str) -> IResult<ast::Literal> {
+        // No escaped characters, classic
+        let (i, s) = quotes(combinator::verify(is_not("\""), |s: &str| !s.is_empty()))(i)?;
+        Ok((i, Literal::String(s)))
+    }
+
+    pub fn literal(i: &str) -> IResult<Expression> {
+        map(
+            alt((
+                if_literal,
+                fn_literal,
+                map(squarely(separated_list0(char(','), expr)), Literal::Array),
+                hash_literal,
+                map_res(digit1, |int: &str| int.parse::<i64>().map(Literal::Integer)),
+                map(recognize(alt((tag("true"), tag("false")))), |b| {
+                    Literal::Boolean(b == "true")
+                }),
+                string_literal,
+                map(identifier, Literal::Identifier),
+            )),
+            Expression::Literal,
+        )(i)
+    }
+}
+
+mod expr {
+    use super::{
+        literal,
+        wrap::{parens, spaced, squarely},
+        IResult,
+    };
+    use crate::ast::{
+        Binary::{Add, Div, Eq, Mul, Neq, Sub, GT, LT},
+        Expression, Operator, Unary,
+    };
+    use nom::{
+        bytes::complete::tag,
+        character::complete::char,
+        combinator::map,
+        multi::{many0, separated_list0},
+        sequence::preceded,
+    };
+
+    fn fold_exprs<'a>(initial: Expression<'a>, remainder: Vec<Operator<'a>>) -> Expression<'a> {
+        remainder.into_iter().fold(initial, |acc, op| op.fold(acc))
+    }
+
+    fn index(i: &str) -> IResult<Expression> {
+        let (i, term) = spaced(nom::branch::alt((literal::literal, parens(expr))))(i)?;
+        let (i, args) = many0(spaced(squarely(map(expr, Operator::Index))))(i)?;
+        Ok((i, fold_exprs(term, args)))
+    }
+
+    fn call(i: &str) -> IResult<Expression> {
+        let (i, term) = index(i)?;
+        let (i, args) = many0(spaced(parens(map(
+            separated_list0(char(','), expr),
+            Operator::Call,
+        ))))(i)?;
+        Ok((i, fold_exprs(term, args)))
+    }
+
+    fn prefix(i: &str) -> IResult<Expression> {
+        let (i, mut prefixes) = many0(nom::branch::alt((
+            map(spaced(char('-')), |_| Operator::Unary(Unary::Neg)),
+            map(spaced(char('!')), |_| Operator::Unary(Unary::Not)),
+        )))(i)?;
+        let (i, term) = call(i)?;
+        prefixes.reverse();
+        Ok((i, fold_exprs(term, prefixes)))
+    }
+
+    macro_rules! binary_operation {
+        ($name: ident, $initial: expr, $($operator:expr, $enum: expr),+) => {
+            fn $name(i: &str) -> IResult<Expression> {
+                let (i, initial) = $initial(i)?;
+                let (i, remainder) = many0(nom::branch::alt((
+                    $(map(spaced(preceded($operator, $initial)), |b| Operator::Binary($enum, b))),+
+                )))(i)?;
+                Ok((i, fold_exprs(initial, remainder)))
+            }
+        };
+    }
+
+    binary_operation!(mul_div, prefix, char('*'), Mul, char('/'), Div);
+    binary_operation!(sum, mul_div, char('+'), Add, char('-'), Sub);
+    binary_operation!(lt_gt, sum, char('<'), LT, char('>'), GT);
+    binary_operation!(full_expr, lt_gt, tag("=="), Eq, tag("!="), Neq);
+
+    pub fn expr(i: &str) -> IResult<Expression> {
+        full_expr(i)
+    }
 }
 
 #[cfg(test)]
