@@ -4,13 +4,9 @@ pub fn str_vec(a: &[impl ToString]) -> Vec<String> {
 
 #[cfg(test)]
 pub mod test_utils {
-    use std::{collections::BTreeMap, rc::Rc};
-
     use crate::{
         code::{Disassembled, Instructions},
-        compiler::{Bytecode, Compiler},
         object::{Hashable, Object},
-        parser,
     };
 
     // Why did I make life hard for myself by having two different types for objects???
@@ -20,10 +16,10 @@ pub mod test_utils {
     pub enum Constant {
         Int(i64),
         Bool(bool),
-        String(Rc<str>),
+        String(std::rc::Rc<str>),
         Null,
         Array(Vec<Constant>),
-        Hash(BTreeMap<Constant, Constant>),
+        Hash(std::collections::BTreeMap<Constant, Constant>),
         Function(Vec<Instructions>),
     }
 
@@ -92,13 +88,13 @@ pub mod test_utils {
         Ok(())
     }
 
-    pub fn compile_program(input: &str) -> Bytecode {
-        let program = match parser::program(input) {
+    pub fn compile_program(input: &str) -> crate::compiler::Bytecode {
+        let program = match crate::parser::program(input) {
             Ok(p) => p.1,
             Err(e) => panic!("invalid program {e}"),
         };
 
-        let mut compiler = Compiler::new();
+        let mut compiler = crate::compiler::Compiler::new();
         if let Err(err) = compiler.compile_program(program) {
             panic!("compiler error: {err:#?}");
         };

@@ -1,11 +1,7 @@
 use crate::ast::{
-    Binary::{Add, Div, Eq, Mul, Neq, Sub, GT, LT},
-    BlockStatement, Expression,
-    Literal::{Array, Boolean, Function, Hash, Identifier, If, Integer, String},
-    Operator::{self, Binary, Call, Index, Unary},
-    Program,
-    Statement::{self, Let, Return},
-    Unary::{Neg, Not},
+    self, Expression, Literal,
+    Operator::{self, Binary},
+    Program, Statement, Unary,
 };
 use nom::{
     branch::alt,
@@ -71,7 +67,7 @@ fn literal(i: &str) -> IResult<Expression> {
                     "else",
                     keyword0("else", squirly(cut(block))),
                 )))(i)?;
-                Ok((i, If(Box::new(cond), consequence, alternative)))
+                Ok((i, Literal::If(Box::new(cond), consequence, alternative)))
             },
             |i| {
                 let (i, args) = context(
@@ -82,26 +78,26 @@ fn literal(i: &str) -> IResult<Expression> {
                     ),
                 )(i)?;
                 let (i, body) = spaced(squirly(block))(i)?;
-                Ok((i, Function(args, body)))
+                Ok((i, Literal::Function(args, body)))
             },
-            map(squarely(separated_list0(char(','), expr)), Array),
+            map(squarely(separated_list0(char(','), expr)), Literal::Array),
             |i| {
                 let (i, pairs) = squirly(separated_list0(
                     char(','),
                     separated_pair(expr, char(':'), expr),
                 ))(i)?;
-                Ok((i, Hash(pairs.into_iter().collect())))
+                Ok((i, Literal::Hash(pairs.into_iter().collect())))
             },
-            map_res(digit1, |int: &str| int.parse::<i64>().map(Integer)),
+            map_res(digit1, |int: &str| int.parse::<i64>().map(Literal::Integer)),
             map(recognize(alt((tag("true"), tag("false")))), |b| {
-                Boolean(b == "true")
+                Literal::Boolean(b == "true")
             }),
             // No escaped characters, classic
             |i| {
                 let (i, s) = quotes(verify(is_not("\""), |s: &str| !s.is_empty()))(i)?;
-                Ok((i, String(s)))
+                Ok((i, Literal::String(s)))
             },
-            map(identifier, Identifier),
+            map(identifier, Literal::Identifier),
         )),
         Expression::Literal,
     )(i)
@@ -109,20 +105,23 @@ fn literal(i: &str) -> IResult<Expression> {
 
 fn index(i: &str) -> IResult<Expression> {
     let (i, term) = spaced(alt((literal, parens(expr))))(i)?;
-    let (i, args) = many0(spaced(squarely(map(expr, Index))))(i)?;
+    let (i, args) = many0(spaced(squarely(map(expr, Operator::Index))))(i)?;
     Ok((i, fold_exprs(term, args)))
 }
 
 fn call(i: &str) -> IResult<Expression> {
     let (i, term) = index(i)?;
-    let (i, args) = many0(spaced(parens(map(separated_list0(char(','), expr), Call))))(i)?;
+    let (i, args) = many0(spaced(parens(map(
+        separated_list0(char(','), expr),
+        Operator::Call,
+    ))))(i)?;
     Ok((i, fold_exprs(term, args)))
 }
 
 fn prefix(i: &str) -> IResult<Expression> {
     let (i, mut prefixes) = many0(alt((
-        map(spaced(char('-')), |_| Unary(Neg)),
-        map(spaced(char('!')), |_| Unary(Not)),
+        map(spaced(char('-')), |_| Operator::Unary(Unary::Neg)),
+        map(spaced(char('!')), |_| Operator::Unary(Unary::Not)),
     )))(i)?;
     let (i, term) = call(i)?;
     prefixes.reverse();
@@ -130,6 +129,7 @@ fn prefix(i: &str) -> IResult<Expression> {
 }
 
 fn mul_div(i: &str) -> IResult<Expression> {
+    use ast::Binary::{Div, Mul};
     let (i, initial) = prefix(i)?;
     let (i, remainder) = many0(alt((
         map(spaced(preceded(char('*'), prefix)), |mul| Binary(Mul, mul)),
@@ -140,6 +140,7 @@ fn mul_div(i: &str) -> IResult<Expression> {
 }
 
 fn sum(i: &str) -> IResult<Expression> {
+    use ast::Binary::{Add, Sub};
     let (i, initial) = mul_div(i)?;
     let (i, remainder) = many0(alt((
         map(spaced(preceded(char('+'), mul_div)), |add| Binary(Add, add)),
@@ -150,6 +151,7 @@ fn sum(i: &str) -> IResult<Expression> {
 }
 
 fn lt_gt(i: &str) -> IResult<Expression> {
+    use ast::Binary::{GT, LT};
     let (i, initial) = sum(i)?;
     let (i, remainder) = many0(alt((
         map(spaced(preceded(char('<'), sum)), |lt| Binary(LT, lt)),
@@ -159,6 +161,7 @@ fn lt_gt(i: &str) -> IResult<Expression> {
 }
 
 fn expr(i: &str) -> IResult<Expression> {
+    use ast::Binary::{Eq, Neq};
     let (i, initial) = lt_gt(i)?;
     let (i, remainder) = many0(alt((
         map(spaced(preceded(tag("=="), lt_gt)), |eq| Binary(Eq, eq)),
@@ -171,17 +174,17 @@ fn fold_exprs<'a>(initial: Expression<'a>, remainder: Vec<Operator<'a>>) -> Expr
     remainder.into_iter().fold(initial, |acc, op| op.fold(acc))
 }
 
-fn block(i: &str) -> IResult<BlockStatement> {
+fn block(i: &str) -> IResult<ast::BlockStatement> {
     map(
         spaced(many0(spaced(alt((
             map(
                 keyword_stmt("let", separated_pair(identifier, spaced(char('=')), expr)),
-                |(ident, expr)| Let(ident, expr),
+                |(ident, expr)| Statement::Let(ident, expr),
             ),
-            map(keyword_stmt("return", expr), Return),
+            map(keyword_stmt("return", expr), Statement::Return),
             map(terminated(expr, opt(char(';'))), Statement::Expression),
         ))))),
-        BlockStatement,
+        ast::BlockStatement,
     )(i)
 }
 

@@ -1,7 +1,3 @@
-use std::collections::BTreeMap;
-
-use crate::{code::Instructions, util::str_vec};
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Object {
     Integer(i64),
@@ -10,9 +6,9 @@ pub enum Object {
     Null,
     ReturnValue(Box<Object>),
     Array(Vec<Object>),
-    Hash(BTreeMap<HashKey, HashPair>),
+    Hash(std::collections::BTreeMap<HashKey, HashPair>),
     Error(String),
-    Function(Instructions),
+    Function(crate::code::Instructions),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -87,7 +83,7 @@ impl std::fmt::Display for Object {
             Self::String(x) => write!(f, "\"{x}\""),
             Self::Null => write!(f, "null"),
             Self::ReturnValue(x) => write!(f, "{}", x.as_ref()),
-            Self::Array(x) => write!(f, "[{}]", str_vec(x).join(", ")),
+            Self::Array(x) => write!(f, "[{}]", crate::util::str_vec(x).join(", ")),
             Self::Hash(x) => write!(
                 f,
                 "{{{}}}",

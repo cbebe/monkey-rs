@@ -5,11 +5,6 @@
     clippy::cast_possible_truncation
 )]
 
-use nom::error::VerboseError;
-use object::Object;
-use rustyline::{self, error::ReadlineError, DefaultEditor};
-use vm::GLOBALS_SIZE;
-
 mod ast;
 mod code;
 mod compiler;
@@ -17,6 +12,9 @@ mod object;
 mod parser;
 mod util;
 mod vm;
+
+use nom::error::VerboseError;
+use rustyline::{self, error::ReadlineError};
 
 #[derive(Debug)]
 enum Error {
@@ -65,9 +63,9 @@ fn read_file() -> Result<(), Error> {
 fn main() -> Result<(), Error> {
     let args = std::env::args().collect::<Vec<String>>();
     let use_ast = matches!(args.get(1).map(|e| &**e), Some("ast"));
-    let mut rl = DefaultEditor::new()?;
-    let mut constants = Vec::<Object>::new();
-    let mut globals = Vec::<Object>::with_capacity(GLOBALS_SIZE);
+    let mut rl = rustyline::DefaultEditor::new()?;
+    let mut constants = Vec::<object::Object>::new();
+    let mut globals = Vec::<object::Object>::with_capacity(vm::GLOBALS_SIZE);
     let mut symbol_table = compiler::SymbolTable::new();
     loop {
         let readline = rl.readline("");
