@@ -29,6 +29,8 @@ pub mod opcodes {
     pub const CALL: u8 = 21;
     pub const RETURN_VALUE: u8 = 22;
     pub const RETURN: u8 = 23;
+    pub const GET_LOCAL: u8 = 24;
+    pub const SET_LOCAL: u8 = 25;
 }
 
 #[derive(PartialEq, Eq)]
@@ -55,42 +57,33 @@ impl std::fmt::Display for Disassembled {
             };
             let pc = bytes_read;
             bytes_read += 1;
+
+            macro_rules! word {
+                ($e: expr, $s: expr) => {{
+                    let word = rdr.read_u16::<BigEndian>().expect($s);
+                    bytes_read += 2;
+                    writeln!(f, "{pc:04} {}", $e(word))?;
+                }};
+            }
+
+            macro_rules! byte {
+                ($e: expr, $s: expr) => {{
+                    let byte = rdr.read_u8().expect($s);
+                    bytes_read += 1;
+                    writeln!(f, "{pc:04} {}", $e(byte))?;
+                }};
+            }
+
             match opcode {
-                opcodes::CONSTANT => {
-                    let constant = rdr.read_u16::<BigEndian>().expect("u16 constant");
-                    bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::Constant(constant))?;
-                }
-                opcodes::JUMP_NOT_TRUTHY => {
-                    let address = rdr.read_u16::<BigEndian>().expect("u16 address");
-                    bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::JumpNotTruthy(address))?;
-                }
-                opcodes::JUMP => {
-                    let address = rdr.read_u16::<BigEndian>().expect("u16 address");
-                    bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::Jump(address))?;
-                }
-                opcodes::GET_GLOBAL => {
-                    let constant = rdr.read_u16::<BigEndian>().expect("u16 constant");
-                    bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::GetGlobal(constant))?;
-                }
-                opcodes::SET_GLOBAL => {
-                    let constant = rdr.read_u16::<BigEndian>().expect("u16 constant");
-                    bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::SetGlobal(constant))?;
-                }
-                opcodes::ARRAY => {
-                    let len = rdr.read_u16::<BigEndian>().expect("u16 length");
-                    bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::Array(len))?;
-                }
-                opcodes::HASH => {
-                    let len = rdr.read_u16::<BigEndian>().expect("u16 length");
-                    bytes_read += 2;
-                    writeln!(f, "{pc:04} {}", Opcode::Hash(len))?;
-                }
+                opcodes::CONSTANT => word!(Opcode::Constant, "u16 constant"),
+                opcodes::JUMP_NOT_TRUTHY => word!(Opcode::JumpNotTruthy, "u16 address"),
+                opcodes::JUMP => word!(Opcode::Jump, "u16 address"),
+                opcodes::GET_GLOBAL => word!(Opcode::GetGlobal, "u16 constant"),
+                opcodes::SET_GLOBAL => word!(Opcode::SetGlobal, "u16 constant"),
+                opcodes::ARRAY => word!(Opcode::Array, "u16 length"),
+                opcodes::HASH => word!(Opcode::Hash, "u16 length"),
+                opcodes::GET_LOCAL => byte!(Opcode::GetLocal, "u8 constant"),
+                opcodes::SET_LOCAL => byte!(Opcode::SetLocal, "u8 constant"),
                 op => writeln!(
                     f,
                     "{pc:04} {}",
@@ -130,6 +123,8 @@ pub enum Opcode {
     Call,
     ReturnValue,
     Return,
+    GetLocal(u8),
+    SetLocal(u8),
 }
 
 #[derive(Debug)]
@@ -191,6 +186,8 @@ impl std::fmt::Display for Opcode {
             Self::Call => write!(f, "OpCall"),
             Self::ReturnValue => write!(f, "OpReturnValue"),
             Self::Return => write!(f, "OpReturn"),
+            Self::GetLocal(x) => write!(f, "OpGetLocal {x}"),
+            Self::SetLocal(x) => write!(f, "OpSetLocal {x}"),
         }
     }
 }
@@ -222,6 +219,8 @@ impl Opcode {
             Self::Call => (opcodes::CALL, 0),
             Self::ReturnValue => (opcodes::RETURN_VALUE, 0),
             Self::Return => (opcodes::RETURN, 0),
+            Self::GetLocal(_) => (opcodes::GET_LOCAL, 1),
+            Self::SetLocal(_) => (opcodes::SET_LOCAL, 1),
         }
     }
 }
@@ -231,6 +230,9 @@ pub fn make(op: Opcode) -> Instructions {
     let mut v = Vec::with_capacity(op_len + 1);
     v.push(opcode);
     match op {
+        Opcode::GetLocal(x) | Opcode::SetLocal(x) => {
+            v.write_u8(x).unwrap();
+        }
         Opcode::Constant(x)
         | Opcode::JumpNotTruthy(x)
         | Opcode::Jump(x)
@@ -270,6 +272,7 @@ mod tests {
     fn test_instructions_string() {
         let instructions = vec![
             make(Opcode::Add),
+            make(Opcode::GetLocal(255)),
             make(Opcode::Constant(2)),
             make(Opcode::Constant(65535)),
         ]
@@ -277,8 +280,9 @@ mod tests {
         .flatten()
         .collect::<Instructions>();
         let expected = r#"0000 OpAdd
-0001 OpConstant 2
-0004 OpConstant 65535
+0001 OpGetLocal 255
+0003 OpConstant 2
+0006 OpConstant 65535
 "#;
         assert_eq!(Disassembled(instructions).to_string(), expected);
     }
@@ -288,6 +292,7 @@ mod tests {
         let cases = vec![
             (Opcode::Constant(65534), vec![opcodes::CONSTANT, 255, 254]),
             (Opcode::Add, vec![opcodes::ADD]),
+            (Opcode::GetLocal(255), vec![opcodes::GET_LOCAL, 255]),
         ];
 
         for (op, expected) in &cases {
