@@ -310,7 +310,10 @@ impl Compiler {
                 self.compile(Node::Expression(*index))?;
                 self.emit(code::Opcode::Index);
             }
-            e => return Err(Error::NotYetImplemented(e.to_string())),
+            Expression::Call(func, _args) => {
+                self.compile(Node::Expression(*func))?;
+                self.emit(code::Opcode::Call);
+            }
         };
         Ok(())
     }
@@ -774,14 +777,15 @@ mod tests {
             make(vec![Constant(0), Pop]),
         )]);
     }
-    macro_rules! scope {
-        ($name: ident) => {{
-            $name.current_scope()
-        }};
-    }
 
     #[test]
     fn test_compiler_scopes() {
+        macro_rules! scope {
+            ($name: ident) => {{
+                $name.current_scope()
+            }};
+        }
+
         let mut compiler = Compiler::new();
         assert_eq!(compiler.scopes.len() - 1, 0);
         compiler.emit(code::Opcode::Mul);
@@ -811,6 +815,24 @@ mod tests {
             code::Opcode::Mul => (),
             _ => panic!("previous_instruction.opcode wrong: {:?}", last.opcode),
         }
+    }
+
+    #[test]
+    fn test_function_calls() {
+        use code::Opcode::{Call, Constant, GetGlobal, Pop, ReturnValue, SetGlobal};
+        use test_utils::Constant::{Function, Int};
+        run_compiler_tests(vec![
+            (
+                "fn() { 24 }();",
+                vec![Int(24), Function(make(vec![Constant(0), ReturnValue]))],
+                make(vec![Constant(1), Call, Pop]),
+            ),
+            (
+                "let noArg = fn() { 24 }; noArg();",
+                vec![Int(24), Function(make(vec![Constant(0), ReturnValue]))],
+                make(vec![Constant(1), SetGlobal(0), GetGlobal(0), Call, Pop]),
+            ),
+        ]);
     }
 
     fn run_compiler_tests(tests: Vec<Test>) {
