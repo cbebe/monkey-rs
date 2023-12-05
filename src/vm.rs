@@ -143,131 +143,172 @@ impl VM {
     }
 }
 
+enum Execute {
+    Done,
+    Continue,
+}
+
 impl<State> VM<State> {
     pub fn run(self) -> Result<VM<vm_state::Run>, Error> {
         let mut frames = self.frames.unwrap_or_default();
         let mut stack = self.stack.unwrap_or_default();
         let mut globals = self.globals.unwrap_or_default();
+        let constants = self.constants;
         while {
             let frame = frames.last().ok_or(Error::OutOfFrames)?;
             frame.ip < frame.func.len()
         } {
-            let frame = frames.last_mut().ok_or(Error::OutOfFrames)?;
-            let mut rdr = Cursor::new(&frame.func);
-            rdr.set_position(frame.ip.try_into().unwrap());
-
-            let opcode = match rdr.read_u8() {
-                Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
-                Err(e) => return Err(Error::Bytecode(e)),
-                Ok(opcode) => opcode,
-            };
-            let pc = frame.ip;
-            frame.ip += 1;
-            match opcode {
-                opcodes::CONSTANT => {
-                    let constant = rdr.read_u16::<BigEndian>().unwrap();
-                    frame.ip += 2;
-                    stack.push(&self.constants[constant as usize])?;
-                }
-                opcodes::TRUE => stack.push(&TRUE)?,
-                opcodes::FALSE => stack.push(&FALSE)?,
-                opcodes::EQUAL | opcodes::NOT_EQUAL | opcodes::GREATER_THAN => {
-                    let result = Self::exec_cmp(opcode, &mut stack)?;
-                    stack.push(&Object::Boolean(result))?;
-                }
-                opcodes::ADD | opcodes::SUB | opcodes::MUL | opcodes::DIV => {
-                    let result = Self::exec_bin_op(opcode, &mut stack)?;
-                    stack.push(&result)?;
-                }
-                opcodes::BANG => {
-                    let result = Self::exec_bang_op(&mut stack)?;
-                    stack.push(&Object::Boolean(result))?;
-                }
-                opcodes::MINUS => {
-                    let result = Self::exec_minus_op(&mut stack)?;
-                    stack.push(&Object::Integer(result))?;
-                }
-                opcodes::POP => {
-                    stack.try_pop()?;
-                }
-                opcodes::JUMP => {
-                    frame.ip = rdr.read_u16::<BigEndian>().unwrap().into();
-                    rdr.set_position(frame.ip.try_into().unwrap());
-                }
-                opcodes::JUMP_NOT_TRUTHY => {
-                    let pos: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    let condition = stack.try_pop()?;
-                    frame.ip += 2;
-                    if !Self::is_truthy(condition) {
-                        frame.ip = pos;
-                        rdr.set_position(frame.ip.try_into().unwrap());
-                    }
-                }
-                opcodes::NULL => stack.push(&NULL)?,
-                opcodes::GET_GLOBAL => {
-                    let global_index: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    frame.ip += 2;
-                    stack.push(&globals[global_index])?;
-                }
-                opcodes::SET_GLOBAL => {
-                    let global_index: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    frame.ip += 2;
-                    let to_set = stack.try_pop()?;
-                    let slen = globals.len();
-                    match slen.cmp(&global_index) {
-                        cmp::Ordering::Equal => globals.push(to_set),
-                        cmp::Ordering::Greater => globals[global_index] = to_set,
-                        cmp::Ordering::Less => return Err(Error::TooManyGlobals),
-                    };
-                }
-                opcodes::ARRAY => {
-                    let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    frame.ip += 2;
-                    // Might be bad for perf but whatevs
-                    let mut arr = Vec::<Object>::with_capacity(num_elems);
-                    for _ in 0..num_elems {
-                        arr.push(stack.try_pop()?);
-                    }
-                    arr.reverse();
-                    stack.push(&Object::Array(arr))?;
-                }
-                opcodes::HASH => {
-                    let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    frame.ip += 2;
-                    let hash = Self::build_hash(&mut stack, num_elems)?;
-                    stack.push(&hash)?;
-                }
-                opcodes::INDEX => Self::exec_index(&mut stack)?,
-                opcodes::CALL => {
-                    let obj = stack.stack_top().ok_or(Error::EmptyStack)?;
-                    if let Object::Function(func) = obj {
-                        let f = Frame::new(func.to_vec());
-                        frames.push(f);
-                    } else {
-                        return Err(Error::CallNonFunction(obj.clone()));
-                    }
-                }
-                opcodes::RETURN_VALUE => {
-                    let ret = stack.try_pop()?;
-                    frames.pop();
-                    stack.try_pop()?;
-                    stack.push(&ret)?;
-                }
-                opcodes::RETURN => {
-                    frames.pop();
-                    stack.try_pop()?;
-                    stack.push(&NULL)?;
-                }
-                op => return Err(Error::UnknownOpcode(pc, op)),
+            if matches!(
+                Self::execute(&mut frames, &mut stack, &mut globals, &constants)?,
+                Execute::Done
+            ) {
+                break;
             }
         }
+
         Ok(VM::<vm_state::Run> {
-            constants: self.constants,
+            constants,
             frames: Some(frames),
             stack: Some(stack),
             state: vm_state::Run,
             globals: Some(globals),
         })
+    }
+
+    fn execute(
+        frames: &mut Vec<Frame>,
+        stack: &mut Stack,
+        globals: &mut Vec<Object>,
+        constants: &[Object],
+    ) -> Result<Execute, Error> {
+        let frame = frames.last_mut().ok_or(Error::OutOfFrames)?;
+        let mut rdr = Cursor::new(&frame.func);
+        rdr.set_position(frame.ip.try_into().unwrap());
+        let opcode = match rdr.read_u8() {
+            Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Ok(Execute::Done)
+            }
+            Err(e) => return Err(Error::Bytecode(e)),
+            Ok(opcode) => opcode,
+        };
+        let pc = frame.ip;
+        frame.ip += 1;
+        match opcode {
+            opcodes::CONSTANT => {
+                let constant = rdr.read_u16::<BigEndian>().unwrap();
+                frame.ip += 2;
+                stack.push(&constants[constant as usize])?;
+            }
+            opcodes::TRUE => stack.push(&TRUE)?,
+            opcodes::FALSE => stack.push(&FALSE)?,
+            opcodes::EQUAL | opcodes::NOT_EQUAL | opcodes::GREATER_THAN => {
+                let result = Self::exec_cmp(opcode, stack)?;
+                stack.push(&Object::Boolean(result))?;
+            }
+            opcodes::ADD | opcodes::SUB | opcodes::MUL | opcodes::DIV => {
+                let result = Self::exec_bin_op(opcode, stack)?;
+                stack.push(&result)?;
+            }
+            opcodes::BANG => {
+                let result = Self::exec_bang_op(stack)?;
+                stack.push(&Object::Boolean(result))?;
+            }
+            opcodes::MINUS => {
+                let result = Self::exec_minus_op(stack)?;
+                stack.push(&Object::Integer(result))?;
+            }
+            opcodes::POP => {
+                stack.try_pop()?;
+            }
+            opcodes::JUMP => {
+                frame.ip = rdr.read_u16::<BigEndian>().unwrap().into();
+                rdr.set_position(frame.ip.try_into().unwrap());
+            }
+            opcodes::JUMP_NOT_TRUTHY => {
+                let pos: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                let condition = stack.try_pop()?;
+                frame.ip += 2;
+                if !Self::is_truthy(condition) {
+                    frame.ip = pos;
+                    rdr.set_position(frame.ip.try_into().unwrap());
+                }
+            }
+            opcodes::NULL => stack.push(&NULL)?,
+            opcodes::GET_GLOBAL | opcodes::SET_GLOBAL => {
+                let global_index: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                frame.ip += 2;
+                Self::global(opcode, global_index, globals, stack)?;
+            }
+            opcodes::ARRAY => {
+                let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                frame.ip += 2;
+                let arr = Self::build_array(stack, num_elems)?;
+                stack.push(&arr)?;
+            }
+            opcodes::HASH => {
+                let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
+                frame.ip += 2;
+                let hash = Self::build_hash(stack, num_elems)?;
+                stack.push(&hash)?;
+            }
+            opcodes::INDEX => Self::exec_index(stack)?,
+            opcodes::CALL => {
+                let obj = stack.stack_top().ok_or(Error::EmptyStack)?;
+                if let Object::Function(func) = obj {
+                    let f = Frame::new(func.clone());
+                    frames.push(f);
+                } else {
+                    return Err(Error::CallNonFunction(obj.clone()));
+                }
+            }
+            opcodes::RETURN_VALUE => {
+                let ret = stack.try_pop()?;
+                frames.pop();
+                stack.try_pop()?;
+                stack.push(&ret)?;
+            }
+            opcodes::RETURN => {
+                frames.pop();
+                stack.try_pop()?;
+                stack.push(&NULL)?;
+            }
+            op => return Err(Error::UnknownOpcode(pc, op)),
+        }
+        Ok(Execute::Continue)
+    }
+
+    fn global(
+        opcode: u8,
+        global_index: usize,
+        globals: &mut Vec<Object>,
+        stack: &mut Stack,
+    ) -> Result<(), Error> {
+        match opcode {
+            opcodes::GET_GLOBAL => {
+                stack.push(&globals[global_index])?;
+            }
+            opcodes::SET_GLOBAL => {
+                let to_set = stack.try_pop()?;
+                let slen = globals.len();
+                match slen.cmp(&global_index) {
+                    cmp::Ordering::Equal => globals.push(to_set),
+                    cmp::Ordering::Greater => globals[global_index] = to_set,
+                    cmp::Ordering::Less => return Err(Error::TooManyGlobals),
+                };
+            }
+            op => return Err(Error::InvalidOp("global", op)),
+        }
+        Ok(())
+    }
+
+    fn build_array(stack: &mut Stack, num_elems: usize) -> Result<Object, Error> {
+        // Might be bad for perf but whatevs
+        let mut arr = Vec::<Object>::with_capacity(num_elems);
+        for _ in 0..num_elems {
+            arr.push(stack.try_pop()?);
+        }
+        arr.reverse();
+        Ok(Object::Array(arr))
     }
 
     fn build_hash(stack: &mut Stack, num_elems: usize) -> Result<Object, Error> {
@@ -314,12 +355,9 @@ impl<State> VM<State> {
             Object::Integer(x) => Ok(x.hash_key()),
             Object::Boolean(x) => Ok(x.hash_key()),
             Object::String(x) => Ok(x.hash_key()),
-            Object::Null
-            | Object::ReturnValue(_)
-            | Object::Array(_)
-            | Object::Hash(_)
-            | Object::Error(_)
-            | Object::Function(_) => Err(Error::UnhashableType(obj.clone())),
+            Object::Null | Object::Array(_) | Object::Hash(_) | Object::Function(_) => {
+                Err(Error::UnhashableType(obj.clone()))
+            }
         }
     }
 

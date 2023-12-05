@@ -4,10 +4,8 @@ pub enum Object {
     Boolean(bool),
     String(String),
     Null,
-    ReturnValue(Box<Object>),
     Array(Vec<Object>),
     Hash(std::collections::BTreeMap<HashKey, HashPair>),
-    Error(String),
     Function(crate::code::Instructions),
 }
 
@@ -82,7 +80,6 @@ impl std::fmt::Display for Object {
             Self::Boolean(x) => write!(f, "{x}"),
             Self::String(x) => write!(f, "\"{x}\""),
             Self::Null => write!(f, "null"),
-            Self::ReturnValue(x) => write!(f, "{}", x.as_ref()),
             Self::Array(x) => write!(f, "[{}]", crate::util::str_vec(x).join(", ")),
             Self::Hash(x) => write!(
                 f,
@@ -92,7 +89,6 @@ impl std::fmt::Display for Object {
                     .collect::<Vec<String>>()
                     .join(", ")
             ),
-            Self::Error(x) => write!(f, "ERROR: {x}"),
             Self::Function(x) => write!(f, "CompiledFunction[{x:p}]"),
         }
     }

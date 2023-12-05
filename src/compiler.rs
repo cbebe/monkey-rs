@@ -20,7 +20,6 @@ impl<'a> std::fmt::Display for Node<'a> {
 
 #[derive(Debug)]
 pub enum Error {
-    NotYetImplemented(String),
     UndefinedVariable(String),
     ArrayTooLong(usize),
     HashTooLong(usize),
