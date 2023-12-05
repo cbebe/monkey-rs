@@ -3,18 +3,28 @@ use std::{cmp, collections::BTreeMap, io::Cursor};
 use byteorder::{BigEndian, ReadBytesExt};
 
 use crate::{
-    code::opcodes,
-    code::Instructions,
-    compiler::Bytecode,
+    code::{opcodes, Instructions},
     object::{HashKey, HashPair, Hashable, Object},
 };
 
 const STACK_SIZE: usize = 2048;
+const MAX_FRAMES: usize = 1024;
 pub const GLOBALS_SIZE: usize = 65536;
 
 const TRUE: Object = Object::Boolean(true);
 const FALSE: Object = Object::Boolean(false);
 const NULL: Object = Object::Null;
+
+struct Frame {
+    pub func: Instructions,
+    pub ip: usize,
+}
+
+impl Frame {
+    pub fn new(func: Instructions) -> Self {
+        Self { func, ip: 0 }
+    }
+}
 
 struct Stack {
     stack: Vec<Object>,
@@ -84,17 +94,16 @@ mod vm_state {
 
 pub struct VM<State = vm_state::Init> {
     constants: Vec<Object>,
-    instructions: Instructions,
+    frames: Option<Vec<Frame>>,
     stack: Option<Stack>,
-    #[allow(dead_code)]
     state: State,
-    #[allow(dead_code)]
     pub globals: Option<Vec<Object>>,
 }
 
 #[derive(Debug)]
 pub enum Error {
     StackOverflow,
+    OutOfFrames,
     TooManyGlobals,
     EmptyStack,
     Bytecode(std::io::Error),
@@ -105,15 +114,18 @@ pub enum Error {
     InvalidIndex(Object, Object),
     UnhashableType(Object),
     KeyAlreadyExists(Object),
+    CallNonFunction(Object),
 }
 
 impl VM {
-    // Not ready for const fn yet
     #[allow(clippy::missing_const_for_fn)]
-    pub fn new(bytecode: Bytecode) -> Self {
+    pub fn new(bytecode: crate::compiler::Bytecode) -> Self {
+        let main_frame = Frame::new(bytecode.instructions);
+        let mut frames = Vec::with_capacity(MAX_FRAMES);
+        frames.push(main_frame);
         Self {
             constants: bytecode.constants,
-            instructions: bytecode.instructions,
+            frames: Some(frames),
             stack: None,
             state: vm_state::Init,
             globals: None,
@@ -126,29 +138,35 @@ impl VM {
             constants: self.constants,
             stack: self.stack,
             state: self.state,
-            instructions: self.instructions,
+            frames: self.frames,
         }
     }
 }
 
 impl<State> VM<State> {
     pub fn run(self) -> Result<VM<vm_state::Run>, Error> {
-        let mut rdr = Cursor::new(&self.instructions);
+        let mut frames = self.frames.unwrap_or_default();
         let mut stack = self.stack.unwrap_or_default();
         let mut globals = self.globals.unwrap_or_default();
-        let mut ip: usize = 0;
-        loop {
+        while {
+            let frame = frames.last().ok_or(Error::OutOfFrames)?;
+            frame.ip < frame.func.len()
+        } {
+            let frame = frames.last_mut().ok_or(Error::OutOfFrames)?;
+            let mut rdr = Cursor::new(&frame.func);
+            rdr.set_position(frame.ip.try_into().unwrap());
+
             let opcode = match rdr.read_u8() {
                 Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
                 Err(e) => return Err(Error::Bytecode(e)),
                 Ok(opcode) => opcode,
             };
-            let pc = ip;
-            ip += 1;
+            let pc = frame.ip;
+            frame.ip += 1;
             match opcode {
                 opcodes::CONSTANT => {
                     let constant = rdr.read_u16::<BigEndian>().unwrap();
-                    ip += 2;
+                    frame.ip += 2;
                     stack.push(&self.constants[constant as usize])?;
                 }
                 opcodes::TRUE => stack.push(&TRUE)?,
@@ -173,27 +191,27 @@ impl<State> VM<State> {
                     stack.try_pop()?;
                 }
                 opcodes::JUMP => {
-                    ip = rdr.read_u16::<BigEndian>().unwrap().into();
-                    rdr.set_position(ip.try_into().unwrap());
+                    frame.ip = rdr.read_u16::<BigEndian>().unwrap().into();
+                    rdr.set_position(frame.ip.try_into().unwrap());
                 }
                 opcodes::JUMP_NOT_TRUTHY => {
                     let pos: usize = rdr.read_u16::<BigEndian>().unwrap().into();
                     let condition = stack.try_pop()?;
-                    ip += 2;
+                    frame.ip += 2;
                     if !Self::is_truthy(condition) {
-                        ip = pos;
-                        rdr.set_position(ip.try_into().unwrap());
+                        frame.ip = pos;
+                        rdr.set_position(frame.ip.try_into().unwrap());
                     }
                 }
                 opcodes::NULL => stack.push(&NULL)?,
                 opcodes::GET_GLOBAL => {
                     let global_index: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    ip += 2;
+                    frame.ip += 2;
                     stack.push(&globals[global_index])?;
                 }
                 opcodes::SET_GLOBAL => {
                     let global_index: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    ip += 2;
+                    frame.ip += 2;
                     let to_set = stack.try_pop()?;
                     let slen = globals.len();
                     match slen.cmp(&global_index) {
@@ -204,7 +222,7 @@ impl<State> VM<State> {
                 }
                 opcodes::ARRAY => {
                     let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    ip += 2;
+                    frame.ip += 2;
                     // Might be bad for perf but whatevs
                     let mut arr = Vec::<Object>::with_capacity(num_elems);
                     for _ in 0..num_elems {
@@ -215,17 +233,37 @@ impl<State> VM<State> {
                 }
                 opcodes::HASH => {
                     let num_elems: usize = rdr.read_u16::<BigEndian>().unwrap().into();
-                    ip += 2;
+                    frame.ip += 2;
                     let hash = Self::build_hash(&mut stack, num_elems)?;
                     stack.push(&hash)?;
                 }
                 opcodes::INDEX => Self::exec_index(&mut stack)?,
+                opcodes::CALL => {
+                    let obj = stack.stack_top().ok_or(Error::EmptyStack)?;
+                    if let Object::Function(func) = obj {
+                        let f = Frame::new(func.to_vec());
+                        frames.push(f);
+                    } else {
+                        return Err(Error::CallNonFunction(obj.clone()));
+                    }
+                }
+                opcodes::RETURN_VALUE => {
+                    let ret = stack.try_pop()?;
+                    frames.pop();
+                    stack.try_pop()?;
+                    stack.push(&ret)?;
+                }
+                opcodes::RETURN => {
+                    frames.pop();
+                    stack.try_pop()?;
+                    stack.push(&NULL)?;
+                }
                 op => return Err(Error::UnknownOpcode(pc, op)),
             }
         }
         Ok(VM::<vm_state::Run> {
             constants: self.constants,
-            instructions: self.instructions,
+            frames: Some(frames),
             stack: Some(stack),
             state: vm_state::Run,
             globals: Some(globals),
@@ -356,10 +394,7 @@ impl VM<vm_state::Run> {
 mod tests {
     use std::rc::Rc;
 
-    use crate::{
-        code::Disassembled,
-        util::test_utils::{compile_program, test_object, Constant},
-    };
+    use crate::util::test_utils::{self, Constant};
 
     use super::VM;
 
@@ -519,10 +554,59 @@ mod tests {
         ]);
     }
 
+    #[test]
+    fn test_calling_functions() {
+        use Constant::Int;
+        run_vm_tests(vec![
+            ("let fivePlusTen = fn() { 5 + 10 }; fivePlusTen();", Int(15)),
+            (
+                "let one = fn() { 1; }; let two = fn() { 2; }; one() + two();",
+                Int(3),
+            ),
+            (
+                "let a = fn() { 1 }; let b = fn() { a() + 1 }; let c = fn() { b() + 1 }; c();",
+                Int(3),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_functions_with_return_statement() {
+        use Constant::Int;
+        run_vm_tests(vec![
+            (
+                "let earlyExit = fn() { return 99; 100; }; earlyExit();",
+                Int(99),
+            ),
+            (
+                "let earlyExit = fn() { return 99; return 100; }; earlyExit();",
+                Int(99),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_functions_without_return_value() {
+        use Constant::Null;
+        run_vm_tests(vec![
+            ("let noReturn = fn() { }; noReturn();", Null),
+            ("let noReturn = fn() { }; let noReturnTwo = fn() { noReturn(); }; noReturn(); noReturnTwo();", Null),
+        ]);
+    }
+
+    #[test]
+    fn test_first_class_functions() {
+        use Constant::Int;
+        run_vm_tests(vec![(
+            "let returnsOne = fn() { 1; }; let returnsOneReturner = fn() { returnsOne; }; returnsOneReturner()();",
+            Int(1),
+        )]);
+    }
+
     fn run_vm_tests(tests: Vec<Test>) {
         for (input, expected) in tests {
-            let bytecode = compile_program(input);
-            let disassembly = Disassembled(bytecode.instructions.clone());
+            let bytecode = test_utils::compile_program(input);
+            let disassembly = crate::code::Disassembled(bytecode.instructions.clone());
             let vm = match VM::new(bytecode).run() {
                 Ok(vm) => vm,
                 Err(err) => panic!("vm error: {err:?}\ninput: {input}\n{disassembly}"),
@@ -530,7 +614,7 @@ mod tests {
             let got = vm
                 .last_popped()
                 .unwrap_or_else(|| panic!("no stack value\ninput: {input}\n{disassembly}"));
-            if let Err(err) = test_object(got, &expected) {
+            if let Err(err) = test_utils::test_object(got, &expected) {
                 panic!("failed test\ninput: {input}\n{err}")
             }
         }
