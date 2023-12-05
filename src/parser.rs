@@ -57,37 +57,43 @@ fn identifier(i: &str) -> IResult<&str> {
     ))(i)
 }
 
+fn if_literal(i: &str) -> IResult<ast::Literal> {
+    let (i, cond) = context("if expr", keyword0("if", cut(parens(expr))))(i)?;
+    let (i, consequence) = context("consequence", spaced(squirly(cut(block))))(i)?;
+    let (i, alternative) = opt(spaced(context(
+        "else",
+        keyword0("else", squirly(cut(block))),
+    )))(i)?;
+    Ok((i, Literal::If(Box::new(cond), consequence, alternative)))
+}
+
+fn fn_literal(i: &str) -> IResult<ast::Literal> {
+    let (i, args) = context(
+        "function",
+        keyword0(
+            "fn",
+            cut(parens(separated_list0(char(','), spaced(identifier)))),
+        ),
+    )(i)?;
+    let (i, body) = spaced(squirly(block))(i)?;
+    Ok((i, Literal::Function(args, body)))
+}
+
+fn hash_literal(i: &str) -> IResult<ast::Literal> {
+    let (i, pairs) = squirly(separated_list0(
+        char(','),
+        separated_pair(expr, char(':'), expr),
+    ))(i)?;
+    Ok((i, Literal::Hash(pairs.into_iter().collect())))
+}
+
 fn literal(i: &str) -> IResult<Expression> {
     map(
         alt((
-            |i| {
-                let (i, cond) = context("if expr", keyword0("if", cut(parens(expr))))(i)?;
-                let (i, consequence) = context("consequence", spaced(squirly(cut(block))))(i)?;
-                let (i, alternative) = opt(spaced(context(
-                    "else",
-                    keyword0("else", squirly(cut(block))),
-                )))(i)?;
-                Ok((i, Literal::If(Box::new(cond), consequence, alternative)))
-            },
-            |i| {
-                let (i, args) = context(
-                    "function",
-                    keyword0(
-                        "fn",
-                        cut(parens(separated_list0(char(','), spaced(identifier)))),
-                    ),
-                )(i)?;
-                let (i, body) = spaced(squirly(block))(i)?;
-                Ok((i, Literal::Function(args, body)))
-            },
+            if_literal,
+            fn_literal,
             map(squarely(separated_list0(char(','), expr)), Literal::Array),
-            |i| {
-                let (i, pairs) = squirly(separated_list0(
-                    char(','),
-                    separated_pair(expr, char(':'), expr),
-                ))(i)?;
-                Ok((i, Literal::Hash(pairs.into_iter().collect())))
-            },
+            hash_literal,
             map_res(digit1, |int: &str| int.parse::<i64>().map(Literal::Integer)),
             map(recognize(alt((tag("true"), tag("false")))), |b| {
                 Literal::Boolean(b == "true")
