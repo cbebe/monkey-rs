@@ -8,6 +8,8 @@
 mod ast;
 mod code;
 mod compiler;
+#[cfg(test)]
+mod compiler_tests;
 mod object;
 mod parser;
 mod symbol_table;
