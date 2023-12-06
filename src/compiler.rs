@@ -2,8 +2,8 @@ use crate::{
     ast,
     code::{self, Instructions},
     object::Object,
+    symbol_table::SymbolTable,
 };
-use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub enum Node<'a> {
@@ -338,116 +338,18 @@ impl Compiler {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SymbolScope(&'static str);
-
-const GLOBAL_SCOPE: SymbolScope = SymbolScope("GLOBAL");
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Symbol {
-    name: String,
-    scope: SymbolScope,
-    index: u16,
-}
-
-#[derive(Clone)]
-pub struct SymbolTable {
-    store: BTreeMap<String, Symbol>,
-    num_definitions: u16,
-}
-
-impl SymbolTable {
-    fn define(&mut self, arg: &str) -> Symbol {
-        let symbol = Symbol {
-            name: arg.to_owned(),
-            index: self.num_definitions,
-            scope: GLOBAL_SCOPE,
-        };
-        self.store.insert(arg.to_owned(), symbol.clone());
-        self.num_definitions += 1;
-
-        symbol
-    }
-
-    fn resolve(&self, name: &str) -> Option<Symbol> {
-        self.store.get(name).cloned()
-    }
-}
-
-impl SymbolTable {
-    pub const fn new() -> Self {
-        Self {
-            store: BTreeMap::new(),
-            num_definitions: 0,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, rc::Rc};
+    use std::rc::Rc;
 
     use crate::{
         code::{self, Instructions, Opcode},
         util::test_utils::{self, compile_program, test_constants, test_instructions},
     };
 
-    use super::{Compiler, Symbol, SymbolTable, GLOBAL_SCOPE};
+    use super::Compiler;
 
     type Test<'a> = (&'a str, Vec<test_utils::Constant>, Vec<Instructions>);
-
-    #[test]
-    fn test_define() {
-        let expected = BTreeMap::from([
-            (
-                "a".to_owned(),
-                Symbol {
-                    name: "a".to_owned(),
-                    scope: GLOBAL_SCOPE,
-                    index: 0,
-                },
-            ),
-            (
-                "b".to_owned(),
-                Symbol {
-                    name: "b".to_owned(),
-                    scope: GLOBAL_SCOPE,
-                    index: 1,
-                },
-            ),
-        ]);
-        let mut global = SymbolTable::new();
-        let a = global.define("a");
-        assert_eq!(a, expected["a"]);
-        let b = global.define("b");
-        assert_eq!(b, expected["b"]);
-    }
-
-    #[test]
-    fn test_resolve_global() {
-        let mut global = SymbolTable::new();
-        global.define("a");
-        global.define("b");
-        let expected = vec![
-            Symbol {
-                name: "a".to_owned(),
-                scope: GLOBAL_SCOPE,
-                index: 0,
-            },
-            Symbol {
-                name: "b".to_owned(),
-                scope: GLOBAL_SCOPE,
-                index: 1,
-            },
-        ];
-        for sym in expected {
-            if let Some(result) = global.resolve(&sym.name) {
-                assert_eq!(result, sym);
-            } else {
-                panic!("name {} not resolvable", sym.name)
-            }
-        }
-    }
 
     fn make(ops: Vec<Opcode>) -> Vec<Instructions> {
         ops.into_iter().map(code::make).collect()

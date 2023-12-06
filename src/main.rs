@@ -10,6 +10,7 @@ mod code;
 mod compiler;
 mod object;
 mod parser;
+mod symbol_table;
 mod util;
 mod vm;
 
@@ -66,7 +67,7 @@ fn main() -> Result<(), Error> {
     let mut rl = rustyline::DefaultEditor::new()?;
     let mut constants = Vec::<object::Object>::new();
     let mut globals = Vec::<object::Object>::with_capacity(vm::GLOBALS_SIZE);
-    let mut symbol_table = compiler::SymbolTable::new();
+    let mut symbol_table = symbol_table::SymbolTable::new();
     loop {
         let readline = rl.readline("");
         match readline {
