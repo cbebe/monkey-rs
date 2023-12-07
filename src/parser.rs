@@ -363,34 +363,52 @@ mod tests {
     }
 
     #[test]
-    fn test_infix_expressions() {
+    fn test_infix_arithmetic() {
         let program = parse_program(
             r#"
             3 + 10;
             5 - 5;
             5 * 5;
             5 / 5;
-            5 > 5;
-            5 < 5;
-            5 == 5;
-            5 != 5;
-            true == true;
-            false == false;
-            true != false;
             "#,
-            11,
+            4,
         );
         assert_infix!(&program[0], Integer(3), Add, Integer(10));
         assert_infix!(&program[1], Integer(5), Sub, Integer(5));
         assert_infix!(&program[2], Integer(5), Mul, Integer(5));
         assert_infix!(&program[3], Integer(5), Div, Integer(5));
-        assert_infix!(&program[4], Integer(5), GT, Integer(5));
-        assert_infix!(&program[5], Integer(5), LT, Integer(5));
-        assert_infix!(&program[6], Integer(5), Eq, Integer(5));
-        assert_infix!(&program[7], Integer(5), Neq, Integer(5));
-        assert_infix!(&program[8], Boolean(true), Eq, Boolean(true));
-        assert_infix!(&program[9], Boolean(false), Eq, Boolean(false));
-        assert_infix!(&program[10], Boolean(true), Neq, Boolean(false));
+    }
+
+    #[test]
+    fn test_infix_number_cmp() {
+        let program = parse_program(
+            r#"
+            5 > 5;
+            5 < 5;
+            5 == 5;
+            5 != 5;
+            "#,
+            4,
+        );
+        assert_infix!(&program[0], Integer(5), GT, Integer(5));
+        assert_infix!(&program[1], Integer(5), LT, Integer(5));
+        assert_infix!(&program[2], Integer(5), Eq, Integer(5));
+        assert_infix!(&program[3], Integer(5), Neq, Integer(5));
+    }
+
+    #[test]
+    fn test_infix_boolean_cmp() {
+        let program = parse_program(
+            r#"
+            true == true;
+            false == false;
+            true != false;
+            "#,
+            3,
+        );
+        assert_infix!(&program[0], Boolean(true), Eq, Boolean(true));
+        assert_infix!(&program[1], Boolean(false), Eq, Boolean(false));
+        assert_infix!(&program[2], Boolean(true), Neq, Boolean(false));
     }
 
     #[test]

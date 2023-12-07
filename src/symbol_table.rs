@@ -38,7 +38,7 @@ impl Default for SymbolTable {
 }
 
 impl SymbolTable {
-    pub const fn new(outer: Option<std::rc::Rc<std::cell::RefCell<SymbolTable>>>) -> Self {
+    pub const fn new(outer: Option<std::rc::Rc<std::cell::RefCell<Self>>>) -> Self {
         Self {
             outer,
             store: BTreeMap::new(),
@@ -66,13 +66,10 @@ impl SymbolTable {
     }
 
     pub fn resolve(&self, name: &str) -> Option<Symbol> {
-        match self.store.get(name) {
-            Some(s) => Some(s.clone()),
-            None => match &self.outer {
-                Some(o) => o.borrow().resolve(name),
-                None => None,
-            },
-        }
+        self.store.get(name).map_or_else(
+            || self.outer.as_ref().and_then(|o| o.borrow().resolve(name)),
+            |s| Some(s.clone()),
+        )
     }
 }
 
@@ -96,20 +93,32 @@ mod tests {
             .map(|s| (s.name.clone(), s)),
         );
         let global = SymbolTable::default().with_rc();
-        let a = global.borrow_mut().define("a");
-        assert_eq!(a, expected["a"]);
-        let b = global.borrow_mut().define("b");
-        assert_eq!(b, expected["b"]);
+        {
+            let a = global.borrow_mut().define("a");
+            assert_eq!(a, expected["a"]);
+        }
+        {
+            let b = global.borrow_mut().define("b");
+            assert_eq!(b, expected["b"]);
+        }
         let first_local = SymbolTable::new(Some(global)).with_rc();
-        let c = first_local.borrow_mut().define("c");
-        assert_eq!(c, expected["c"]);
-        let d = first_local.borrow_mut().define("d");
-        assert_eq!(d, expected["d"]);
+        {
+            let c = first_local.borrow_mut().define("c");
+            assert_eq!(c, expected["c"]);
+        }
+        {
+            let d = first_local.borrow_mut().define("d");
+            assert_eq!(d, expected["d"]);
+        }
         let second_local = SymbolTable::new(Some(first_local)).with_rc();
-        let e = second_local.borrow_mut().define("e");
-        assert_eq!(e, expected["e"]);
-        let f = second_local.borrow_mut().define("f");
-        assert_eq!(f, expected["f"]);
+        {
+            let e = second_local.borrow_mut().define("e");
+            assert_eq!(e, expected["e"]);
+        }
+        {
+            let f = second_local.borrow_mut().define("f");
+            assert_eq!(f, expected["f"]);
+        }
     }
 
     macro_rules! test_symbols {

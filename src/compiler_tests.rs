@@ -5,7 +5,7 @@ mod tests {
     use crate::{
         code::{
             self, Instructions,
-            Opcode::{self, *},
+            Opcode::{self, Add, Array, Bang, Call, Constant, Div, Equal, False, GetGlobal, GetLocal, GreaterThan, Hash, Index, Jump, JumpNotTruthy, Minus, Mul, NotEqual, Null, Pop, Return, ReturnValue, SetGlobal, SetLocal, Sub, True},
         },
         util::test_utils::{
             self, compile_program, test_constants, test_instructions,

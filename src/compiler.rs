@@ -1,5 +1,5 @@
 use crate::{
-    ast,
+    ast::{self, BlockStatement, Expression},
     code::{self, Instructions},
     object::Object,
     symbol_table::{SymbolScope, SymbolTable, GLOBAL_SCOPE, LOCAL_SCOPE},
@@ -191,42 +191,82 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_function(
+        &mut self,
+        _params: &[&str],
+        statements: BlockStatement,
+    ) -> Result<(), Error> {
+        self.enter_scope();
+        self.compile(Node::Block(statements))?;
+
+        if let Some(EmmitedInstruction {
+            opcode: code::Opcode::Pop,
+            position: pos,
+        }) = self.current_scope().last_instruction
+        {
+            self.change_opcode(pos, code::Opcode::ReturnValue);
+            self.set_last_instruction(code::Opcode::ReturnValue, pos);
+        }
+
+        if let Some(EmmitedInstruction {
+            opcode: code::Opcode::ReturnValue,
+            position: _,
+        }) = self.current_scope().last_instruction
+        {
+        } else {
+            self.emit(code::Opcode::Return);
+        }
+
+        let num_definitions = self.symbol_table.borrow().num_definitions;
+        let num_locals: u8 = num_definitions
+            .try_into()
+            .or(Err(Error::TooManyLocals(num_definitions)))?;
+        let instructions = self.leave_scope();
+        let fn_obj = Object::Function {
+            instructions,
+            num_locals,
+        };
+        let idx = self.add_constant(fn_obj);
+        self.emit(code::Opcode::Constant(idx));
+        Ok(())
+    }
+
+    fn compile_if(
+        &mut self,
+        condition: Expression,
+        consequence: BlockStatement,
+        alternative: Option<BlockStatement>,
+    ) -> Result<(), Error> {
+        self.compile(Node::Expression(condition))?;
+        let jump_not_truthy_pos = self.emit(code::Opcode::JumpNotTruthy(9999));
+        self.compile(Node::Block(consequence))?;
+
+        self.remove_last_pop();
+
+        let jump_pos = self.emit(code::Opcode::Jump(9999));
+
+        let after_consequence_pos = self.current_scope_mut().instructions.len();
+        self.change_opcode(
+            jump_not_truthy_pos,
+            code::Opcode::JumpNotTruthy(after_consequence_pos as u16),
+        );
+
+        if let Some(alt) = alternative {
+            self.compile(Node::Block(alt))?;
+            self.remove_last_pop();
+        } else {
+            self.emit(code::Opcode::Null);
+        }
+        let after_alternative_pos = self.current_scope_mut().instructions.len();
+        self.change_opcode(jump_pos, code::Opcode::Jump(after_alternative_pos as u16));
+        Ok(())
+    }
+
     fn compile_literal(&mut self, lit: ast::Literal) -> Result<(), Error> {
         use ast::Literal;
         match lit {
-            Literal::Function(_params, statements) => {
-                self.enter_scope();
-                self.compile(Node::Block(statements))?;
-
-                if let Some(EmmitedInstruction {
-                    opcode: code::Opcode::Pop,
-                    position: pos,
-                }) = self.current_scope().last_instruction
-                {
-                    self.change_opcode(pos, code::Opcode::ReturnValue);
-                    self.set_last_instruction(code::Opcode::ReturnValue, pos);
-                }
-
-                if let Some(EmmitedInstruction {
-                    opcode: code::Opcode::ReturnValue,
-                    position: _,
-                }) = self.current_scope().last_instruction
-                {
-                } else {
-                    self.emit(code::Opcode::Return);
-                }
-
-                let num_definitions = self.symbol_table.borrow().num_definitions;
-                let num_locals: u8 = num_definitions
-                    .try_into()
-                    .or(Err(Error::TooManyLocals(num_definitions)))?;
-                let instructions = self.leave_scope();
-                let fn_obj = Object::Function {
-                    instructions,
-                    num_locals,
-                };
-                let idx = self.add_constant(fn_obj);
-                self.emit(code::Opcode::Constant(idx));
+            Literal::Function(params, statements) => {
+                self.compile_function(&params, statements)?;
             }
             Literal::Boolean(bool) => {
                 self.emit(if bool {
@@ -241,28 +281,7 @@ impl Compiler {
                 self.emit(code::Opcode::Constant(idx));
             }
             Literal::If(condition, consequence, alternative) => {
-                self.compile(Node::Expression(*condition))?;
-                let jump_not_truthy_pos = self.emit(code::Opcode::JumpNotTruthy(9999));
-                self.compile(Node::Block(consequence))?;
-
-                self.remove_last_pop();
-
-                let jump_pos = self.emit(code::Opcode::Jump(9999));
-
-                let after_consequence_pos = self.current_scope_mut().instructions.len();
-                self.change_opcode(
-                    jump_not_truthy_pos,
-                    code::Opcode::JumpNotTruthy(after_consequence_pos as u16),
-                );
-
-                if let Some(alt) = alternative {
-                    self.compile(Node::Block(alt))?;
-                    self.remove_last_pop();
-                } else {
-                    self.emit(code::Opcode::Null);
-                }
-                let after_alternative_pos = self.current_scope_mut().instructions.len();
-                self.change_opcode(jump_pos, code::Opcode::Jump(after_alternative_pos as u16));
+                self.compile_if(*condition, consequence, alternative)?;
             }
             Literal::Identifier(x) => {
                 let symbol = self
@@ -308,7 +327,6 @@ impl Compiler {
     }
 
     fn compile_expr(&mut self, expr: ast::Expression) -> Result<(), Error> {
-        use ast::Expression;
         match expr {
             Expression::Prefix(op, e) => {
                 self.compile(Node::Expression(*e))?;

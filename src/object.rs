@@ -47,6 +47,8 @@ impl Hashable for i64 {
     fn hash_key(&self) -> HashKey {
         HashKey {
             object_type: "INT",
+            // These numbers are hashed the same
+            #[allow(clippy::cast_sign_loss)]
             value: *self as u64,
         }
     }
