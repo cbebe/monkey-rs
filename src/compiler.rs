@@ -216,7 +216,15 @@ impl Compiler {
                     self.emit(code::Opcode::Return);
                 }
 
-                let fn_obj = Object::Function(self.leave_scope());
+                let num_definitions = self.symbol_table.borrow().num_definitions;
+                let num_locals: u8 = num_definitions
+                    .try_into()
+                    .or(Err(Error::TooManyLocals(num_definitions)))?;
+                let instructions = self.leave_scope();
+                let fn_obj = Object::Function {
+                    instructions,
+                    num_locals,
+                };
                 let idx = self.add_constant(fn_obj);
                 self.emit(code::Opcode::Constant(idx));
             }

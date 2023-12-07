@@ -6,7 +6,10 @@ pub enum Object {
     Null,
     Array(Vec<Object>),
     Hash(std::collections::BTreeMap<HashKey, HashPair>),
-    Function(crate::code::Instructions),
+    Function {
+        instructions: crate::code::Instructions,
+        num_locals: u8,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -89,7 +92,10 @@ impl std::fmt::Display for Object {
                     .collect::<Vec<String>>()
                     .join(", ")
             ),
-            Self::Function(x) => write!(f, "CompiledFunction[{x:p}]"),
+            Self::Function {
+                instructions,
+                num_locals,
+            } => write!(f, "CompiledFunction[{instructions:p}]({num_locals})"),
         }
     }
 }

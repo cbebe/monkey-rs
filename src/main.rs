@@ -15,6 +15,8 @@ mod parser;
 mod symbol_table;
 mod util;
 mod vm;
+#[cfg(test)]
+mod vm_tests;
 
 use nom::error::VerboseError;
 use rustyline::{self, error::ReadlineError};

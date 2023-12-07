@@ -28,7 +28,7 @@ impl Symbol {
 pub struct SymbolTable {
     pub outer: Option<std::rc::Rc<std::cell::RefCell<SymbolTable>>>,
     store: BTreeMap<String, Symbol>,
-    num_definitions: u16,
+    pub num_definitions: u16,
 }
 
 impl Default for SymbolTable {

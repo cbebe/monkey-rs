@@ -62,11 +62,12 @@ pub mod test_utils {
 
                 Ok(())
             }
-            (Constant::Function(x), Object::Function(y))
-                if test_instructions(x.clone(), y.clone()) =>
-            {
-                Ok(())
-            }
+            (
+                Constant::Function(x),
+                Object::Function {
+                    instructions: y, ..
+                },
+            ) if test_instructions(x.clone(), y.clone()) => Ok(()),
 
             (Constant::Null, Object::Null) => Ok(()),
             _ => Err(format!("want: {want:?}\ngot: {got:?}")),
