@@ -24,10 +24,10 @@ mod tests {
             let bytecode = compile_program(input);
             assert!(
                 test_instructions(instructions.clone(), bytecode.instructions.clone()),
-                "failed test for input {}.\nwant: {:?}\ngot: {:?}",
+                "failed test for input {}.\nwant:\n{}\ngot:\n{}",
                 &input,
-                instructions,
-                bytecode.instructions
+                code::Disassembled(instructions.into_iter().flatten().collect::<Instructions>()),
+                code::Disassembled(bytecode.instructions)
             );
             if let Err(err) = test_constants(&constants, &bytecode.constants) {
                 panic!("failed test for input {}.\n{err}", &input);
@@ -392,7 +392,7 @@ mod tests {
                         ReturnValue,
                     ])),
                 ],
-                make(vec![Constant(1), Pop]),
+                make(vec![Constant(2), Pop]),
             ),
         ]);
     }

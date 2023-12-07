@@ -69,7 +69,7 @@ fn main() -> Result<(), Error> {
     let mut rl = rustyline::DefaultEditor::new()?;
     let mut constants = Vec::<object::Object>::new();
     let mut globals = Vec::<object::Object>::with_capacity(vm::GLOBALS_SIZE);
-    let mut symbol_table = symbol_table::SymbolTable::new();
+    let mut symbol_table = symbol_table::SymbolTable::default();
     loop {
         let readline = rl.readline("");
         match readline {
@@ -87,7 +87,7 @@ fn main() -> Result<(), Error> {
                         let mut comp = compiler::Compiler::new()
                             .with_state(symbol_table.clone(), constants.clone());
                         comp.compile_program(program)?;
-                        symbol_table = comp.symbol_table.clone();
+                        symbol_table = comp.symbol_table.borrow_mut().clone();
                         let code = comp.bytecode();
                         constants = code.constants.clone();
                         let machine = vm::VM::new(code).with_globals(globals.clone()).run()?;

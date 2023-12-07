@@ -2,7 +2,7 @@ use crate::{
     ast,
     code::{self, Instructions},
     object::Object,
-    symbol_table::SymbolTable,
+    symbol_table::{SymbolScope, SymbolTable, GLOBAL_SCOPE, LOCAL_SCOPE},
 };
 
 #[derive(Debug)]
@@ -23,6 +23,8 @@ pub enum Error {
     UndefinedVariable(String),
     ArrayTooLong(usize),
     HashTooLong(usize),
+    TooManyLocals(u16),
+    UnknownScope(SymbolScope),
 }
 
 impl std::fmt::Display for Error {
@@ -57,7 +59,7 @@ impl CompilationScope {
 pub struct Compiler {
     scopes: Vec<CompilationScope>,
     constants: Vec<Object>,
-    pub symbol_table: SymbolTable,
+    pub symbol_table: std::rc::Rc<std::cell::RefCell<SymbolTable>>,
 }
 
 pub struct Bytecode {
@@ -70,16 +72,19 @@ impl Compiler {
         Self {
             scopes: vec![CompilationScope::new()],
             constants: vec![],
-            symbol_table: SymbolTable::new(),
+            symbol_table: SymbolTable::default().with_rc(),
         }
     }
 
     pub fn enter_scope(&mut self) {
         self.scopes.push(CompilationScope::new());
+        self.symbol_table = SymbolTable::new(Some((*self.symbol_table).clone().into())).with_rc();
     }
 
     pub fn leave_scope(&mut self) -> Instructions {
         let scope = self.scopes.pop().expect("has scope");
+        let table: SymbolTable = (*self.symbol_table).borrow().clone();
+        self.symbol_table = table.outer.unwrap();
         scope.instructions
     }
 
@@ -87,7 +92,7 @@ impl Compiler {
         Self {
             scopes: self.scopes,
             constants,
-            symbol_table,
+            symbol_table: symbol_table.with_rc(),
         }
     }
 
@@ -161,8 +166,18 @@ impl Compiler {
         match stmt {
             Statement::Let(ident, expr) => {
                 self.compile(Node::Expression(expr))?;
-                let symbol = self.symbol_table.define(ident);
-                self.emit(code::Opcode::SetGlobal(symbol.index));
+                let symbol = self.symbol_table.borrow_mut().define(ident);
+                let opcode = match symbol.scope {
+                    LOCAL_SCOPE => code::Opcode::SetLocal(
+                        symbol
+                            .index
+                            .try_into()
+                            .or(Err(Error::TooManyLocals(symbol.index)))?,
+                    ),
+                    GLOBAL_SCOPE => code::Opcode::SetGlobal(symbol.index),
+                    e => return Err(Error::UnknownScope(e)),
+                };
+                self.emit(opcode);
             }
             Statement::Expression(e) => {
                 self.compile(Node::Expression(e))?;
@@ -244,9 +259,19 @@ impl Compiler {
             Literal::Identifier(x) => {
                 let symbol = self
                     .symbol_table
+                    .borrow_mut()
                     .resolve(x)
                     .ok_or_else(|| Error::UndefinedVariable(x.to_owned()))?;
-                self.emit(code::Opcode::GetGlobal(symbol.index));
+                match symbol.scope {
+                    GLOBAL_SCOPE => self.emit(code::Opcode::GetGlobal(symbol.index)),
+                    LOCAL_SCOPE => self.emit(code::Opcode::GetLocal(
+                        symbol
+                            .index
+                            .try_into()
+                            .or(Err(Error::TooManyLocals(symbol.index)))?,
+                    )),
+                    e => return Err(Error::UnknownScope(e)),
+                };
             }
             Literal::String(x) => {
                 let str_obj = Object::String(x.to_string());
@@ -353,6 +378,7 @@ mod tests {
 
         let mut compiler = Compiler::new();
         assert_eq!(compiler.scopes.len() - 1, 0);
+        let global_table = compiler.symbol_table.clone();
         compiler.emit(Mul);
         compiler.enter_scope();
         assert_eq!(compiler.scopes.len() - 1, 1);
@@ -363,8 +389,22 @@ mod tests {
             Sub => (),
             _ => panic!("last_instruction.opcode wrong: {:?}", last.opcode),
         }
+        assert_eq!(
+            compiler.symbol_table.borrow().outer,
+            Some(global_table.clone()),
+            "compiler did not enclose global",
+        );
         compiler.leave_scope();
         assert_eq!(compiler.scopes.len() - 1, 0);
+        assert_eq!(
+            compiler.symbol_table, global_table,
+            "compiler did not restore global symbol table",
+        );
+        assert_eq!(
+            compiler.symbol_table.borrow().outer,
+            None,
+            "compiler modified global symbol table incorrectly",
+        );
         compiler.emit(Add);
         assert_eq!(scope!(compiler).instructions.len(), 2);
         let last = scope!(compiler).last_instruction.expect("last instruction");
