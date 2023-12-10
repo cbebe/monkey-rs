@@ -21,6 +21,7 @@ pub mod test_utils {
         Array(Vec<Constant>),
         Hash(std::collections::BTreeMap<Constant, Constant>),
         Function(Vec<Instructions>),
+        Error(crate::vm::Error),
     }
 
     pub fn test_object(got: &Object, want: &Constant) -> Result<(), String> {
@@ -45,7 +46,8 @@ pub mod test_utils {
                         Constant::Int(x) => x.hash_key(),
                         Constant::Bool(x) => x.hash_key(),
                         Constant::String(x) => x.to_string().hash_key(),
-                        Constant::Null
+                        Constant::Error(_)
+                        | Constant::Null
                         | Constant::Array(_)
                         | Constant::Hash(_)
                         | Constant::Function(_) => {

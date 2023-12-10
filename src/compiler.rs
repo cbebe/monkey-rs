@@ -226,9 +226,14 @@ impl Compiler {
             .try_into()
             .or(Err(Error::TooManyLocals(num_definitions)))?;
         let instructions = self.leave_scope();
+        let num_params: u8 = params
+            .len()
+            .try_into()
+            .or(Err(Error::TooManyArgs(params.len())))?;
         let fn_obj = Object::Function {
             instructions,
             num_locals,
+            num_params,
         };
         let idx = self.add_constant(fn_obj);
         self.emit(code::Opcode::Constant(idx));

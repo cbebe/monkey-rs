@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Object {
     Integer(i64),
     Boolean(bool),
@@ -8,6 +8,7 @@ pub enum Object {
     Hash(std::collections::BTreeMap<HashKey, HashPair>),
     Function {
         instructions: crate::code::Instructions,
+        num_params: u8,
         num_locals: u8,
     },
 }
@@ -18,7 +19,7 @@ pub struct HashKey {
     value: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HashPair {
     pub key: Object,
     pub value: Object,
@@ -97,7 +98,11 @@ impl std::fmt::Display for Object {
             Self::Function {
                 instructions,
                 num_locals,
-            } => write!(f, "CompiledFunction[{instructions:p}]({num_locals})"),
+                num_params,
+            } => write!(
+                f,
+                "CompiledFunction[{instructions:p}]({num_locals}, {num_params})"
+            ),
         }
     }
 }

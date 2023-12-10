@@ -5,9 +5,9 @@ mod tests {
     use crate::{
         util::test_utils::{
             self,
-            Constant::{self, Array, Bool, Hash, Int, Null, String},
+            Constant::{self, Array, Bool, Error, Hash, Int, Null, String},
         },
-        vm::VM,
+        vm::{Error as VMError, VM},
     };
 
     // https://stackoverflow.com/a/27582993
@@ -268,13 +268,23 @@ mod tests {
         outer() + globalNum;"# => Int(50),
     );
 
+    vm_tests!(
+        test_calling_functions_with_wrong_arguments,
+        "fn() { 1; }(1);" => Error(VMError::WrongArguments{ want: 0, got: 1 }),
+        "fn(a) { a; }();" => Error(VMError::WrongArguments{ want: 1, got: 0 }),
+        "fn(a, b) { a + b; }(1);" => Error(VMError::WrongArguments{ want: 2, got: 1 }),
+    );
+
     fn run_vm_tests(tests: Vec<Test>) {
         for (input, expected) in tests {
             let bytecode = test_utils::compile_program(input);
             let disassembly = crate::code::Disassembled(bytecode.instructions.clone());
             let vm = match VM::new(bytecode).run() {
                 Ok(vm) => vm,
-                Err(err) => panic!("vm error: {err:?}\ninput: {input}\n{disassembly}"),
+                Err(err) => match expected {
+                    Error(e) if e == err => continue,
+                    _ => panic!("vm error: {err:?}\ninput: {input}\n{disassembly}"),
+                },
             };
             let got = vm
                 .last_popped()

@@ -104,13 +104,13 @@ pub struct VM<State = vm_state::Init> {
     pub globals: Option<Vec<Object>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub enum Error {
     StackOverflow,
     OutOfFrames,
     TooManyGlobals,
     EmptyStack,
-    Bytecode(std::io::Error),
+    Bytecode(String),
     UnknownOpcode(usize, u8),
     InvalidOp(&'static str, u8),
     InvalidBinary(Object, Object),
@@ -120,6 +120,7 @@ pub enum Error {
     UnhashableType(Object),
     KeyAlreadyExists(Object),
     CallNonFunction(Object),
+    WrongArguments { want: usize, got: usize },
 }
 
 impl VM {
@@ -208,7 +209,7 @@ impl<State> VM<State> {
             Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                 return Ok(Execute::Done)
             }
-            Err(e) => return Err(Error::Bytecode(e)),
+            Err(e) => return Err(Error::Bytecode(e.to_string())),
             Ok(opcode) => opcode,
         };
         let pc = frame.ip;
@@ -304,8 +305,15 @@ impl<State> VM<State> {
         if let Object::Function {
             instructions: func,
             num_locals,
+            num_params,
         } = obj
         {
+            if num_args != (*num_params).into() {
+                return Err(Error::WrongArguments {
+                    want: (*num_params).into(),
+                    got: num_args,
+                });
+            }
             let frame = Frame::new(func.clone(), stack.sp - num_args);
             let base_pointer = frame.base_pointer;
             frames.push(frame);
