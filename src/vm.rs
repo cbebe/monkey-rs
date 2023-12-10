@@ -278,19 +278,7 @@ impl<State> VM<State> {
                 stack.push(&hash)?;
             }
             CALL => {
-                let _ = read_byte!(args);
-                let obj = stack.stack_top().ok_or(Error::EmptyStack)?;
-                if let Object::Function {
-                    instructions: func,
-                    num_locals,
-                } = obj
-                {
-                    frames.push(Frame::new(func.clone(), stack.sp));
-                    let to_add: usize = (*num_locals).into();
-                    stack.sp += to_add;
-                } else {
-                    return Err(Error::CallNonFunction(obj.clone()));
-                }
+                Self::call_function(read_byte!(args), stack, frames)?;
             }
             RETURN_VALUE | RETURN => {
                 let ret = if opcode == RETURN_VALUE {
@@ -304,6 +292,29 @@ impl<State> VM<State> {
             op => return Err(Error::UnknownOpcode(pc, op)),
         }
         Ok(Execute::Continue)
+    }
+
+    fn call_function(
+        num_args: usize,
+        stack: &mut Stack,
+        frames: &mut Vec<Frame>,
+    ) -> Result<(), Error> {
+        let fn_idx = stack.sp - 1 - num_args;
+        let obj = &stack.stack[fn_idx];
+        if let Object::Function {
+            instructions: func,
+            num_locals,
+        } = obj
+        {
+            let frame = Frame::new(func.clone(), stack.sp - num_args);
+            let base_pointer = frame.base_pointer;
+            frames.push(frame);
+            let to_add: usize = (*num_locals).into();
+            stack.sp = base_pointer + to_add;
+        } else {
+            return Err(Error::CallNonFunction(obj.clone()));
+        }
+        Ok(())
     }
 
     fn global(

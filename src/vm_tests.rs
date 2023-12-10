@@ -227,6 +227,47 @@ mod tests {
         minusOne() + minusTwo();"# => Int(97),
     );
 
+    vm_tests!(
+        test_calling_functions_with_arguments_and_bindings,
+        "let identity = fn(a) { a; }; identity(4);" => Int(4),
+        "let sum = fn(a, b) { a + b; }; sum(1, 2);" => Int(3),
+
+        r#"
+        let sum = fn(a,b) {
+            let c = a + b;
+            c;
+        };
+        sum(1, 2);"# => Int(3),
+
+        r#"
+        let sum = fn(a, b) {
+            let c = a + b;
+            c;
+        };
+        sum(1, 2) + sum(3, 4);"# => Int(10),
+
+        r#"
+        let sum = fn(a, b) {
+            let c = a + b;
+            c;
+        };
+        let outer = fn() {
+            sum(1, 2) + sum(3, 4);
+        };
+        outer();"# => Int(10),
+
+        r#"
+        let globalNum = 10;
+        let sum = fn(a, b) {
+            let c = a + b;
+            c + globalNum;
+        };
+        let outer = fn() {
+            sum(1, 2) + sum(3, 4) + globalNum;
+        };
+        outer() + globalNum;"# => Int(50),
+    );
+
     fn run_vm_tests(tests: Vec<Test>) {
         for (input, expected) in tests {
             let bytecode = test_utils::compile_program(input);
