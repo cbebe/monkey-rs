@@ -24,6 +24,7 @@ pub enum Error {
     ArrayTooLong(usize),
     HashTooLong(usize),
     TooManyLocals(u16),
+    TooManyArgs(usize),
     UnknownScope(SymbolScope),
 }
 
@@ -360,9 +361,12 @@ impl Compiler {
                 self.compile(Node::Expression(*index))?;
                 self.emit(code::Opcode::Index);
             }
-            Expression::Call(func, _args) => {
+            Expression::Call(func, args) => {
                 self.compile(Node::Expression(*func))?;
-                self.emit(code::Opcode::Call);
+                let len = args.len();
+                self.emit(code::Opcode::Call(
+                    len.try_into().or(Err(Error::TooManyArgs(len)))?,
+                ));
             }
         };
         Ok(())

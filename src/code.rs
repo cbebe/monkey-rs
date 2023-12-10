@@ -82,6 +82,7 @@ impl std::fmt::Display for Disassembled {
                 opcodes::SET_GLOBAL => word!(Opcode::SetGlobal, "u16 constant"),
                 opcodes::ARRAY => word!(Opcode::Array, "u16 length"),
                 opcodes::HASH => word!(Opcode::Hash, "u16 length"),
+                opcodes::CALL => byte!(Opcode::Call, "u8 params"),
                 opcodes::GET_LOCAL => byte!(Opcode::GetLocal, "u8 constant"),
                 opcodes::SET_LOCAL => byte!(Opcode::SetLocal, "u8 constant"),
                 op => writeln!(
@@ -120,7 +121,7 @@ pub enum Opcode {
     Array(u16),
     Hash(u16),
     Index,
-    Call,
+    Call(u8),
     ReturnValue,
     Return,
     GetLocal(u8),
@@ -183,7 +184,7 @@ impl std::fmt::Display for Opcode {
             Self::Array(x) => write!(f, "OpArray {x}"),
             Self::Hash(x) => write!(f, "OpHash {x}"),
             Self::Index => write!(f, "OpIndex"),
-            Self::Call => write!(f, "OpCall"),
+            Self::Call(x) => write!(f, "OpCall {x}"),
             Self::ReturnValue => write!(f, "OpReturnValue"),
             Self::Return => write!(f, "OpReturn"),
             Self::GetLocal(x) => write!(f, "OpGetLocal {x}"),
@@ -216,7 +217,7 @@ impl Opcode {
             Self::Array(_) => (opcodes::ARRAY, 2),
             Self::Hash(_) => (opcodes::HASH, 2),
             Self::Index => (opcodes::INDEX, 0),
-            Self::Call => (opcodes::CALL, 0),
+            Self::Call(_) => (opcodes::CALL, 1),
             Self::ReturnValue => (opcodes::RETURN_VALUE, 0),
             Self::Return => (opcodes::RETURN, 0),
             Self::GetLocal(_) => (opcodes::GET_LOCAL, 1),
@@ -230,7 +231,7 @@ pub fn make(op: Opcode) -> Instructions {
     let mut v = Vec::with_capacity(op_len + 1);
     v.push(opcode);
     match op {
-        Opcode::GetLocal(x) | Opcode::SetLocal(x) => {
+        Opcode::GetLocal(x) | Opcode::SetLocal(x) | Opcode::Call(x) => {
             v.write_u8(x).unwrap();
         }
         Opcode::Constant(x)
@@ -256,7 +257,6 @@ pub fn make(op: Opcode) -> Instructions {
         | Opcode::Bang
         | Opcode::Null
         | Opcode::Index
-        | Opcode::Call
         | Opcode::ReturnValue
         | Opcode::Return => {}
     }

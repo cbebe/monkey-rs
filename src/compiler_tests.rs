@@ -5,7 +5,11 @@ mod tests {
     use crate::{
         code::{
             self, Instructions,
-            Opcode::{self, Add, Array, Bang, Call, Constant, Div, Equal, False, GetGlobal, GetLocal, GreaterThan, Hash, Index, Jump, JumpNotTruthy, Minus, Mul, NotEqual, Null, Pop, Return, ReturnValue, SetGlobal, SetLocal, Sub, True},
+            Opcode::{
+                self, Add, Array, Bang, Call, Constant, Div, Equal, False, GetGlobal, GetLocal,
+                GreaterThan, Hash, Index, Jump, JumpNotTruthy, Minus, Mul, NotEqual, Null, Pop,
+                Return, ReturnValue, SetGlobal, SetLocal, Sub, True,
+            },
         },
         util::test_utils::{
             self, compile_program, test_constants, test_instructions,
@@ -345,12 +349,12 @@ mod tests {
             (
                 "fn() { 24 }();",
                 vec![Int(24), Function(make(vec![Constant(0), ReturnValue]))],
-                make(vec![Constant(1), Call, Pop]),
+                make(vec![Constant(1), Call(0), Pop]),
             ),
             (
                 "let noArg = fn() { 24 }; noArg();",
                 vec![Int(24), Function(make(vec![Constant(0), ReturnValue]))],
-                make(vec![Constant(1), SetGlobal(0), GetGlobal(0), Call, Pop]),
+                make(vec![Constant(1), SetGlobal(0), GetGlobal(0), Call(0), Pop]),
             ),
         ]);
     }

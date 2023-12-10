@@ -225,6 +225,17 @@ impl<State> VM<State> {
             }};
         }
 
+        macro_rules! read_byte {
+            () => {
+                read_byte!(byte)
+            };
+            ($name: ident) => {{
+                let $name: usize = rdr.read_u8().unwrap().into();
+                frame.ip += 1;
+                $name
+            }};
+        }
+
         match opcode {
             CONSTANT => {
                 stack.push(&constants[read_word!(constant)])?;
@@ -256,9 +267,7 @@ impl<State> VM<State> {
                 Self::global(opcode, read_word!(global_index), globals, stack)?;
             }
             SET_LOCAL | GET_LOCAL => {
-                let local_index: usize = rdr.read_u8().unwrap().into();
-                frame.ip += 1;
-                Self::local(opcode, local_index, frame.base_pointer, stack)?;
+                Self::local(opcode, read_byte!(local_index), frame.base_pointer, stack)?;
             }
             ARRAY => {
                 let arr = Self::build_array(stack, read_word!(num_elems))?;
@@ -269,6 +278,7 @@ impl<State> VM<State> {
                 stack.push(&hash)?;
             }
             CALL => {
+                let _ = read_byte!(args);
                 let obj = stack.stack_top().ok_or(Error::EmptyStack)?;
                 if let Object::Function {
                     instructions: func,
