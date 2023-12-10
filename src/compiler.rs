@@ -194,10 +194,13 @@ impl Compiler {
 
     fn compile_function(
         &mut self,
-        _params: &[&str],
+        params: &[&str],
         statements: BlockStatement,
     ) -> Result<(), Error> {
         self.enter_scope();
+        for p in params {
+            self.symbol_table.borrow_mut().define(p);
+        }
         self.compile(Node::Block(statements))?;
 
         if let Some(EmmitedInstruction {
@@ -364,6 +367,9 @@ impl Compiler {
             Expression::Call(func, args) => {
                 self.compile(Node::Expression(*func))?;
                 let len = args.len();
+                for a in args {
+                    self.compile(Node::Expression(a))?;
+                }
                 self.emit(code::Opcode::Call(
                     len.try_into().or(Err(Error::TooManyArgs(len)))?,
                 ));

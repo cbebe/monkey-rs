@@ -356,6 +356,44 @@ mod tests {
                 vec![Int(24), Function(make(vec![Constant(0), ReturnValue]))],
                 make(vec![Constant(1), SetGlobal(0), GetGlobal(0), Call(0), Pop]),
             ),
+            (
+                "let oneArg = fn(a) { a }; oneArg(24);",
+                vec![Function(make(vec![GetLocal(0), ReturnValue])), Int(24)],
+                make(vec![
+                    Constant(0),
+                    SetGlobal(0),
+                    GetGlobal(0),
+                    Constant(1),
+                    Call(1),
+                    Pop,
+                ]),
+            ),
+            (
+                "let manyArg = fn(a, b, c) { a; b; c }; manyArg(24, 25, 26);",
+                vec![
+                    Function(make(vec![
+                        GetLocal(0),
+                        Pop,
+                        GetLocal(1),
+                        Pop,
+                        GetLocal(2),
+                        ReturnValue,
+                    ])),
+                    Int(24),
+                    Int(25),
+                    Int(26),
+                ],
+                make(vec![
+                    Constant(0),
+                    SetGlobal(0),
+                    GetGlobal(0),
+                    Constant(1),
+                    Constant(2),
+                    Constant(3),
+                    Call(3),
+                    Pop,
+                ]),
+            ),
         ]);
     }
 
