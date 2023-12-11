@@ -52,7 +52,7 @@ impl SymbolTable {
 
     pub fn define(&mut self, arg: &str) -> Symbol {
         let symbol = Symbol {
-            name: arg.to_owned(),
+            name: arg.to_string(),
             index: self.num_definitions,
             scope: match self.outer {
                 Some(_) => LOCAL_SCOPE,
@@ -93,32 +93,19 @@ mod tests {
             .map(|s| (s.name.clone(), s)),
         );
         let global = SymbolTable::default().with_rc();
-        {
-            let a = global.borrow_mut().define("a");
-            assert_eq!(a, expected["a"]);
+        macro_rules! test_define {
+            ($table: expr, $name: expr) => {{
+                assert_eq!($table.borrow_mut().define($name), expected[$name]);
+            }};
         }
-        {
-            let b = global.borrow_mut().define("b");
-            assert_eq!(b, expected["b"]);
-        }
+        test_define!(global, "a");
+        test_define!(global, "b");
         let first_local = SymbolTable::new(Some(global)).with_rc();
-        {
-            let c = first_local.borrow_mut().define("c");
-            assert_eq!(c, expected["c"]);
-        }
-        {
-            let d = first_local.borrow_mut().define("d");
-            assert_eq!(d, expected["d"]);
-        }
+        test_define!(first_local, "c");
+        test_define!(first_local, "d");
         let second_local = SymbolTable::new(Some(first_local)).with_rc();
-        {
-            let e = second_local.borrow_mut().define("e");
-            assert_eq!(e, expected["e"]);
-        }
-        {
-            let f = second_local.borrow_mut().define("f");
-            assert_eq!(f, expected["f"]);
-        }
+        test_define!(second_local, "e");
+        test_define!(second_local, "f");
     }
 
     macro_rules! test_symbols {
