@@ -1,9 +1,5 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
-#![allow(
-    clippy::implicit_return,
-    clippy::question_mark_used,
-    clippy::cast_possible_truncation
-)]
+#![allow(clippy::implicit_return, clippy::question_mark_used)]
 
 mod ast;
 mod code;

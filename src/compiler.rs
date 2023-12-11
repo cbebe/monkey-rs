@@ -25,6 +25,7 @@ pub enum Error {
     HashTooLong(usize),
     TooManyLocals(u16),
     TooManyArgs(usize),
+    TooManyInstructions(usize),
     UnknownScope(SymbolScope),
 }
 
@@ -255,10 +256,10 @@ impl Compiler {
         let jump_pos = self.emit(code::Opcode::Jump(9999));
 
         let after_consequence_pos = self.current_scope_mut().instructions.len();
-        self.change_opcode(
-            jump_not_truthy_pos,
-            code::Opcode::JumpNotTruthy(after_consequence_pos as u16),
-        );
+        let pos: u16 = after_consequence_pos
+            .try_into()
+            .or(Err(Error::TooManyInstructions(after_consequence_pos)))?;
+        self.change_opcode(jump_not_truthy_pos, code::Opcode::JumpNotTruthy(pos));
 
         if let Some(alt) = alternative {
             self.compile(Node::Block(alt))?;
@@ -267,7 +268,10 @@ impl Compiler {
             self.emit(code::Opcode::Null);
         }
         let after_alternative_pos = self.current_scope_mut().instructions.len();
-        self.change_opcode(jump_pos, code::Opcode::Jump(after_alternative_pos as u16));
+        let pos: u16 = after_alternative_pos
+            .try_into()
+            .or(Err(Error::TooManyInstructions(after_alternative_pos)))?;
+        self.change_opcode(jump_pos, code::Opcode::Jump(pos));
         Ok(())
     }
 

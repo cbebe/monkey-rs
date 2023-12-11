@@ -124,7 +124,6 @@ pub enum Error {
 }
 
 impl VM {
-    #[allow(clippy::missing_const_for_fn)]
     pub fn new(bytecode: crate::compiler::Bytecode) -> Self {
         let main_frame = Frame::new(bytecode.instructions, 0);
         let mut frames = Vec::with_capacity(MAX_FRAMES);
@@ -403,7 +402,7 @@ impl<State> VM<State> {
                     Object::Null
                 } else {
                     // It was originally a usize anyway
-                    #[allow(clippy::cast_sign_loss)]
+                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
                     x[*i as usize].clone()
                 }
             }
