@@ -8,7 +8,7 @@ use crate::{
         },
         Instructions,
     },
-    object::{HashKey, HashPair, Hashable, Object},
+    object::{CompiledFunction, HashKey, HashPair, Hashable, Object},
 };
 use byteorder::{BigEndian, ReadBytesExt};
 use std::{cmp, collections::BTreeMap, io::Cursor};
@@ -303,11 +303,11 @@ impl<State> VM<State> {
         let fn_idx = stack.sp - 1 - num_args;
         let obj = &stack.stack[fn_idx];
         match obj {
-            Object::Function {
+            Object::Function(CompiledFunction {
                 instructions: func,
                 num_params,
                 num_locals,
-            } => {
+            }) => {
                 if num_args != (*num_params).into() {
                     return Err(Error::WrongArguments {
                         want: (*num_params).into(),
@@ -433,9 +433,10 @@ impl<State> VM<State> {
             Object::Boolean(x) => Ok(x.hash_key()),
             Object::String(x) => Ok(x.hash_key()),
             Object::Null
+            | Object::Closure { .. }
             | Object::Array(_)
             | Object::Hash(_)
-            | Object::Function { .. }
+            | Object::Function(_)
             | Object::Builtin(_) => Err(Error::UnhashableType(obj.clone())),
         }
     }

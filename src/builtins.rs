@@ -26,7 +26,8 @@ fn len(args: &[Object]) -> Result {
         Object::Array(x) => size!(x),
         Object::Hash(x) => size!(x),
         Object::Null
-        | Object::Function { .. }
+        | Object::Closure { .. }
+        | Object::Function(_)
         | Object::Builtin(_)
         | Object::Integer(_)
         | Object::Boolean(_) => Err(vm::Error::InvalidUnary(args[0].clone())),
@@ -44,8 +45,9 @@ fn _array_builtin(args: &[Object]) -> std::result::Result<&Vec<Object>, vm::Erro
     match &args[0] {
         Object::Array(x) => Ok(x),
         Object::Null
+        | Object::Closure { .. }
         | Object::Hash(_)
-        | Object::Function { .. }
+        | Object::Function(_)
         | Object::Builtin(_)
         | Object::Integer(_)
         | Object::String(_)

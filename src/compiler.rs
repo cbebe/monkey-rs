@@ -2,7 +2,7 @@ use crate::{
     ast::{self, BlockStatement, Expression},
     builtins,
     code::{self, Instructions},
-    object::Object,
+    object::{CompiledFunction, Object},
     symbol_table::{SymbolScope, SymbolTable, BUILTIN_SCOPE, GLOBAL_SCOPE, LOCAL_SCOPE},
 };
 
@@ -239,11 +239,11 @@ impl Compiler {
             .len()
             .try_into()
             .or(Err(Error::TooManyArgs(params.len())))?;
-        let fn_obj = Object::Function {
+        let fn_obj = Object::Function(CompiledFunction {
             instructions,
             num_locals,
             num_params,
-        };
+        });
         let idx = self.add_constant(fn_obj);
         self.emit(code::Opcode::Constant(idx));
         Ok(())

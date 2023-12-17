@@ -1,4 +1,10 @@
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CompiledFunction {
+    pub instructions: crate::code::Instructions,
+    pub num_params: u8,
+    pub num_locals: u8,
+}
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Object {
     Integer(i64),
     Boolean(bool),
@@ -6,12 +12,12 @@ pub enum Object {
     Null,
     Array(Vec<Object>),
     Hash(std::collections::BTreeMap<HashKey, HashPair>),
-    Function {
-        instructions: crate::code::Instructions,
-        num_params: u8,
-        num_locals: u8,
-    },
+    Function(CompiledFunction),
     Builtin(u8),
+    Closure {
+        func: CompiledFunction,
+        free: Vec<Object>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -97,14 +103,15 @@ impl std::fmt::Display for Object {
                     .join(", ")
             ),
             Self::Builtin(x) => write!(f, "Builtin[{}]", crate::builtins::BUILTINS[*x as usize].0),
-            Self::Function {
+            Self::Function(CompiledFunction {
                 instructions,
                 num_locals,
                 num_params,
-            } => write!(
+            }) => write!(
                 f,
                 "CompiledFunction[{instructions:p}]({num_locals}, {num_params})"
             ),
+            Self::Closure { func, .. } => write!(f, "{:p}", func),
         }
     }
 }

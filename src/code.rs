@@ -32,6 +32,7 @@ pub mod opcodes {
     pub const GET_LOCAL: u8 = 24;
     pub const SET_LOCAL: u8 = 25;
     pub const GET_BUILTIN: u8 = 26;
+    pub const CLOSURE: u8 = 27;
 }
 
 #[derive(PartialEq, Eq)]
@@ -87,6 +88,13 @@ impl std::fmt::Display for Disassembled {
                 opcodes::GET_LOCAL => byte!(Opcode::GetLocal, "u8 constant"),
                 opcodes::SET_LOCAL => byte!(Opcode::SetLocal, "u8 constant"),
                 opcodes::GET_BUILTIN => byte!(Opcode::GetBuiltin, "u8 constant"),
+                opcodes::CLOSURE => {
+                    let closure_idx = rdr.read_u16::<BigEndian>().expect("u16 constant");
+                    bytes_read += 2;
+                    let free_vars = rdr.read_u8().expect("u8 constant");
+                    bytes_read += 1;
+                    writeln!(f, "{pc:04} {}", Opcode::Closure(closure_idx, free_vars))?;
+                }
                 op => writeln!(
                     f,
                     "{pc:04} {}",
@@ -129,6 +137,7 @@ pub enum Opcode {
     GetLocal(u8),
     SetLocal(u8),
     GetBuiltin(u8),
+    Closure(u16, u8),
 }
 
 #[derive(Debug)]
@@ -194,6 +203,7 @@ impl std::fmt::Display for Opcode {
             Self::GetLocal(x) => write!(f, "OpGetLocal {x}"),
             Self::SetLocal(x) => write!(f, "OpSetLocal {x}"),
             Self::GetBuiltin(x) => write!(f, "OpGetBuiltin {x}"),
+            Self::Closure(x, y) => write!(f, "OpClosure {x} {y}"),
         }
     }
 }
@@ -228,6 +238,7 @@ impl Opcode {
             Self::GetLocal(_) => (opcodes::GET_LOCAL, 1),
             Self::SetLocal(_) => (opcodes::SET_LOCAL, 1),
             Self::GetBuiltin(_) => (opcodes::GET_BUILTIN, 1),
+            Self::Closure(..) => (opcodes::CLOSURE, 2),
         }
     }
 }
@@ -248,6 +259,10 @@ pub fn make(op: Opcode) -> Instructions {
         | Opcode::Array(x)
         | Opcode::Hash(x) => {
             v.write_u16::<BigEndian>(x).unwrap();
+        }
+        Opcode::Closure(x, y) => {
+            v.write_u16::<BigEndian>(x).unwrap();
+            v.write_u8(y).unwrap();
         }
         Opcode::Add
         | Opcode::Pop
@@ -281,6 +296,7 @@ mod tests {
             make(Opcode::GetLocal(255)),
             make(Opcode::Constant(2)),
             make(Opcode::Constant(65535)),
+            make(Opcode::Closure(65535, 255)),
         ]
         .into_iter()
         .flatten()
@@ -289,6 +305,7 @@ mod tests {
 0001 OpGetLocal 255
 0003 OpConstant 2
 0006 OpConstant 65535
+0009 OpClosure 65535 255
 "#;
         assert_eq!(Disassembled(instructions).to_string(), expected);
     }
@@ -299,6 +316,10 @@ mod tests {
             (Opcode::Constant(65534), vec![opcodes::CONSTANT, 255, 254]),
             (Opcode::Add, vec![opcodes::ADD]),
             (Opcode::GetLocal(255), vec![opcodes::GET_LOCAL, 255]),
+            (
+                Opcode::Closure(65534, 255),
+                vec![opcodes::CLOSURE, 255, 254, 255],
+            ),
         ];
 
         for (op, expected) in &cases {

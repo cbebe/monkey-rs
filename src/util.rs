@@ -6,7 +6,7 @@ pub fn str_vec(a: &[impl ToString]) -> Vec<String> {
 pub mod test_utils {
     use crate::{
         code::{Disassembled, Instructions},
-        object::{Hashable, Object},
+        object::{CompiledFunction, Hashable, Object},
     };
 
     // Why did I make life hard for myself by having two different types for objects???
@@ -66,9 +66,9 @@ pub mod test_utils {
             }
             (
                 Constant::Function(x),
-                Object::Function {
+                Object::Function(CompiledFunction {
                     instructions: y, ..
-                },
+                }),
             ) if test_instructions(x.clone(), y.clone()) => Ok(()),
 
             (Constant::Null, Object::Null) => Ok(()),
