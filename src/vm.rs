@@ -1,9 +1,10 @@
 use crate::{
+    builtins,
     code::{
         opcodes::{
-            ADD, ARRAY, BANG, CALL, CONSTANT, DIV, EQUAL, FALSE, GET_GLOBAL, GET_LOCAL,
-            GREATER_THAN, HASH, INDEX, JUMP, JUMP_NOT_TRUTHY, MINUS, MUL, NOT_EQUAL, NULL, POP,
-            RETURN, RETURN_VALUE, SET_GLOBAL, SET_LOCAL, SUB, TRUE,
+            ADD, ARRAY, BANG, CALL, CONSTANT, DIV, EQUAL, FALSE, GET_BUILTIN, GET_GLOBAL,
+            GET_LOCAL, GREATER_THAN, HASH, INDEX, JUMP, JUMP_NOT_TRUTHY, MINUS, MUL, NOT_EQUAL,
+            NULL, POP, RETURN, RETURN_VALUE, SET_GLOBAL, SET_LOCAL, SUB, TRUE,
         },
         Instructions,
     },
@@ -266,7 +267,7 @@ impl<State> VM<State> {
             GET_GLOBAL | SET_GLOBAL => {
                 Self::global(opcode, read_word!(global_index), globals, stack)?;
             }
-            SET_LOCAL | GET_LOCAL => {
+            SET_LOCAL | GET_LOCAL | GET_BUILTIN => {
                 Self::local(opcode, read_byte!(local_index), frame.base_pointer, stack)?;
             }
             ARRAY => {
@@ -301,25 +302,32 @@ impl<State> VM<State> {
     ) -> Result<(), Error> {
         let fn_idx = stack.sp - 1 - num_args;
         let obj = &stack.stack[fn_idx];
-        if let Object::Function {
-            instructions: func,
-            num_locals,
-            num_params,
-        } = obj
-        {
-            if num_args != (*num_params).into() {
-                return Err(Error::WrongArguments {
-                    want: (*num_params).into(),
-                    got: num_args,
-                });
+        match obj {
+            Object::Function {
+                instructions: func,
+                num_params,
+                num_locals,
+            } => {
+                if num_args != (*num_params).into() {
+                    return Err(Error::WrongArguments {
+                        want: (*num_params).into(),
+                        got: num_args,
+                    });
+                }
+                let frame = Frame::new(func.clone(), stack.sp - num_args);
+                let base_pointer = frame.base_pointer;
+                frames.push(frame);
+                let to_add: usize = (*num_locals).into();
+                stack.sp = base_pointer + to_add;
             }
-            let frame = Frame::new(func.clone(), stack.sp - num_args);
-            let base_pointer = frame.base_pointer;
-            frames.push(frame);
-            let to_add: usize = (*num_locals).into();
-            stack.sp = base_pointer + to_add;
-        } else {
-            return Err(Error::CallNonFunction(obj.clone()));
+            Object::Builtin(idx) => {
+                let result = builtins::BUILTINS[*idx as usize].1(
+                    &stack.stack[stack.sp - num_args..stack.sp],
+                )?;
+                stack.sp = fn_idx;
+                stack.push(&result.unwrap_or(NULL_OBJ))?;
+            }
+            o => return Err(Error::CallNonFunction(o.clone())),
         }
         Ok(())
     }
@@ -362,6 +370,9 @@ impl<State> VM<State> {
             SET_LOCAL => {
                 let to_set = stack.try_pop()?;
                 stack.stack[base_pointer + local_index] = to_set;
+            }
+            GET_BUILTIN => {
+                stack.push(&Object::Builtin(local_index.try_into().unwrap()))?;
             }
             op => return Err(Error::InvalidOp("local", op)),
         }
@@ -421,9 +432,11 @@ impl<State> VM<State> {
             Object::Integer(x) => Ok(x.hash_key()),
             Object::Boolean(x) => Ok(x.hash_key()),
             Object::String(x) => Ok(x.hash_key()),
-            Object::Null | Object::Array(_) | Object::Hash(_) | Object::Function { .. } => {
-                Err(Error::UnhashableType(obj.clone()))
-            }
+            Object::Null
+            | Object::Array(_)
+            | Object::Hash(_)
+            | Object::Function { .. }
+            | Object::Builtin(_) => Err(Error::UnhashableType(obj.clone())),
         }
     }
 

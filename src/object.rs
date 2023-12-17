@@ -11,6 +11,7 @@ pub enum Object {
         num_params: u8,
         num_locals: u8,
     },
+    Builtin(u8),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -95,6 +96,7 @@ impl std::fmt::Display for Object {
                     .collect::<Vec<String>>()
                     .join(", ")
             ),
+            Self::Builtin(x) => write!(f, "Builtin[{}]", crate::builtins::BUILTINS[*x as usize].0),
             Self::Function {
                 instructions,
                 num_locals,

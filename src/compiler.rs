@@ -1,8 +1,9 @@
 use crate::{
     ast::{self, BlockStatement, Expression},
+    builtins,
     code::{self, Instructions},
     object::Object,
-    symbol_table::{SymbolScope, SymbolTable, GLOBAL_SCOPE, LOCAL_SCOPE},
+    symbol_table::{SymbolScope, SymbolTable, BUILTIN_SCOPE, GLOBAL_SCOPE, LOCAL_SCOPE},
 };
 
 #[derive(Debug)]
@@ -71,10 +72,17 @@ pub struct Bytecode {
 
 impl Compiler {
     pub fn new() -> Self {
+        let symbol_table = SymbolTable::default().with_rc();
+        {
+            let mut s = symbol_table.borrow_mut();
+            for i in 0..builtins::BUILTINS.len() {
+                s.define_builtin(i.try_into().unwrap(), builtins::BUILTINS[i].0);
+            }
+        }
         Self {
             scopes: vec![CompilationScope::new()],
             constants: vec![],
-            symbol_table: SymbolTable::default().with_rc(),
+            symbol_table,
         }
     }
 
@@ -310,6 +318,9 @@ impl Compiler {
                             .try_into()
                             .or(Err(Error::TooManyLocals(symbol.index)))?,
                     )),
+                    BUILTIN_SCOPE => {
+                        self.emit(code::Opcode::GetBuiltin(symbol.index.try_into().unwrap()))
+                    }
                     e => return Err(Error::UnknownScope(e)),
                 };
             }

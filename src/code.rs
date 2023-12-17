@@ -31,6 +31,7 @@ pub mod opcodes {
     pub const RETURN: u8 = 23;
     pub const GET_LOCAL: u8 = 24;
     pub const SET_LOCAL: u8 = 25;
+    pub const GET_BUILTIN: u8 = 26;
 }
 
 #[derive(PartialEq, Eq)]
@@ -85,6 +86,7 @@ impl std::fmt::Display for Disassembled {
                 opcodes::CALL => byte!(Opcode::Call, "u8 params"),
                 opcodes::GET_LOCAL => byte!(Opcode::GetLocal, "u8 constant"),
                 opcodes::SET_LOCAL => byte!(Opcode::SetLocal, "u8 constant"),
+                opcodes::GET_BUILTIN => byte!(Opcode::GetBuiltin, "u8 constant"),
                 op => writeln!(
                     f,
                     "{pc:04} {}",
@@ -126,6 +128,7 @@ pub enum Opcode {
     Return,
     GetLocal(u8),
     SetLocal(u8),
+    GetBuiltin(u8),
 }
 
 #[derive(Debug)]
@@ -155,6 +158,7 @@ impl TryFrom<u8> for Opcode {
             opcodes::INDEX => Ok(Self::Index),
             opcodes::GET_GLOBAL => Ok(Self::GetGlobal(0)),
             opcodes::SET_GLOBAL => Ok(Self::SetGlobal(0)),
+            opcodes::GET_BUILTIN => Ok(Self::GetBuiltin(0)),
             op => Err(InvalidOpcode(op)),
         }
     }
@@ -189,6 +193,7 @@ impl std::fmt::Display for Opcode {
             Self::Return => write!(f, "OpReturn"),
             Self::GetLocal(x) => write!(f, "OpGetLocal {x}"),
             Self::SetLocal(x) => write!(f, "OpSetLocal {x}"),
+            Self::GetBuiltin(x) => write!(f, "OpGetBuiltin {x}"),
         }
     }
 }
@@ -222,6 +227,7 @@ impl Opcode {
             Self::Return => (opcodes::RETURN, 0),
             Self::GetLocal(_) => (opcodes::GET_LOCAL, 1),
             Self::SetLocal(_) => (opcodes::SET_LOCAL, 1),
+            Self::GetBuiltin(_) => (opcodes::GET_BUILTIN, 1),
         }
     }
 }
@@ -231,7 +237,7 @@ pub fn make(op: Opcode) -> Instructions {
     let mut v = Vec::with_capacity(op_len + 1);
     v.push(opcode);
     match op {
-        Opcode::GetLocal(x) | Opcode::SetLocal(x) | Opcode::Call(x) => {
+        Opcode::GetLocal(x) | Opcode::SetLocal(x) | Opcode::Call(x) | Opcode::GetBuiltin(x) => {
             v.write_u8(x).unwrap();
         }
         Opcode::Constant(x)

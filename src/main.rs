@@ -2,6 +2,7 @@
 #![allow(clippy::implicit_return, clippy::question_mark_used)]
 
 mod ast;
+mod builtins;
 mod code;
 mod compiler;
 #[cfg(test)]

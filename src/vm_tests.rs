@@ -275,6 +275,28 @@ mod tests {
         "fn(a, b) { a + b; }(1);" => Error(VMError::WrongArguments{ want: 2, got: 1 }),
     );
 
+    vm_tests!(
+        test_builtin_functions,
+        r#"len("")"# => Int(0),
+        r#"len("four")"# => Int(4),
+        r#"len("hello world")"# => Int(11),
+        r#"len(1)"# => Error(VMError::InvalidUnary(crate::object::Object::Integer(1))),
+        r#"len("one", "two")"# => Error(VMError::WrongArguments{ want: 1, got: 2 }),
+        r#"len([])"# => Int(0),
+        r#"len([1, 2, 3])"# => Int(3),
+        r#"puts("hello", "world!")"# => Null,
+        r#"first([1, 2, 3])"# => Int(1),
+        r#"first([])"# => Null,
+        r#"first(1)"# => Error(VMError::InvalidUnary(crate::object::Object::Integer(1))),
+        r#"last([1, 2, 3])"# => Int(3),
+        r#"last([])"# => Null,
+        r#"last(1)"# => Error(VMError::InvalidUnary(crate::object::Object::Integer(1))),
+        r#"rest([1, 2, 3])"# => array![Int(2), Int(3)],
+        r#"rest([])"# => Null,
+        r#"push([], 1)"# => array![Int(1)],
+        r#"push(1, 1)"# => Error(VMError::InvalidUnary(crate::object::Object::Integer(1))),
+    );
+
     fn run_vm_tests(tests: Vec<Test>) {
         for (input, expected) in tests {
             let bytecode = test_utils::compile_program(input);
@@ -290,7 +312,7 @@ mod tests {
                 .last_popped()
                 .unwrap_or_else(|| panic!("no stack value\ninput: {input}\n{disassembly}"));
             if let Err(err) = test_utils::test_object(got, &expected) {
-                panic!("failed test\ninput: {input}\n{err}")
+                panic!("failed test\ninput: {input}\n{disassembly}\n{err}")
             }
         }
     }

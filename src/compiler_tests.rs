@@ -6,9 +6,9 @@ mod tests {
         code::{
             self, Instructions,
             Opcode::{
-                self, Add, Array, Bang, Call, Constant, Div, Equal, False, GetGlobal, GetLocal,
-                GreaterThan, Hash, Index, Jump, JumpNotTruthy, Minus, Mul, NotEqual, Null, Pop,
-                Return, ReturnValue, SetGlobal, SetLocal, Sub, True,
+                self, Add, Array, Bang, Call, Constant, Div, Equal, False, GetBuiltin, GetGlobal,
+                GetLocal, GreaterThan, Hash, Index, Jump, JumpNotTruthy, Minus, Mul, NotEqual,
+                Null, Pop, Return, ReturnValue, SetGlobal, SetLocal, Sub, True,
             },
         },
         util::test_utils::{
@@ -435,6 +435,42 @@ mod tests {
                     ])),
                 ],
                 make(vec![Constant(2), Pop]),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_builtins() {
+        run_compiler_tests(vec![
+            (
+                "len([]); push([], 1);",
+                vec![Int(1)],
+                make(vec![
+                    GetBuiltin(0),
+                    Array(0),
+                    Call(1),
+                    Pop,
+                    GetBuiltin(5),
+                    Array(0),
+                    Constant(0),
+                    Call(2),
+                    Pop,
+                ]),
+            ),
+            (
+                r#"len("");"#,
+                vec![String(Rc::from(""))],
+                make(vec![GetBuiltin(0), Constant(0), Call(1), Pop]),
+            ),
+            (
+                "fn() { len([]) }",
+                vec![Function(make(vec![
+                    GetBuiltin(0),
+                    Array(0),
+                    Call(1),
+                    ReturnValue,
+                ]))],
+                make(vec![Constant(0), Pop]),
             ),
         ]);
     }
