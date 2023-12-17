@@ -177,8 +177,8 @@ impl Compiler {
         use ast::Statement;
         match stmt {
             Statement::Let(ident, expr) => {
-                self.compile(Node::Expression(expr))?;
                 let symbol = self.symbol_table.borrow_mut().define(ident);
+                self.compile(Node::Expression(expr))?;
                 let opcode = match symbol.scope {
                     LOCAL_SCOPE => code::Opcode::SetLocal(
                         symbol
@@ -247,7 +247,11 @@ impl Compiler {
             .len()
             .try_into()
             .or(Err(Error::TooManyArgs(params.len())))?;
-        let fn_obj = Object::Function(CompiledFunction { instructions, num_params, num_locals });
+        let fn_obj = Object::Function(CompiledFunction {
+            instructions,
+            num_params,
+            num_locals,
+        });
         let idx = self.add_constant(fn_obj);
         self.emit(code::Opcode::Closure(
             idx,

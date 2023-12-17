@@ -1,9 +1,9 @@
 use crate::{
     builtins,
     code::opcodes::{
-        ADD, ARRAY, BANG, CALL, CLOSURE, CONSTANT, DIV, EQUAL, FALSE, GET_BUILTIN, GET_GLOBAL,
-        GET_LOCAL, GREATER_THAN, HASH, INDEX, JUMP, JUMP_NOT_TRUTHY, MINUS, MUL, NOT_EQUAL, NULL,
-        POP, RETURN, RETURN_VALUE, SET_GLOBAL, SET_LOCAL, SUB, TRUE,
+        ADD, ARRAY, BANG, CALL, CLOSURE, CONSTANT, DIV, EQUAL, FALSE, GET_BUILTIN, GET_FREE,
+        GET_GLOBAL, GET_LOCAL, GREATER_THAN, HASH, INDEX, JUMP, JUMP_NOT_TRUTHY, MINUS, MUL,
+        NOT_EQUAL, NULL, POP, RETURN, RETURN_VALUE, SET_GLOBAL, SET_LOCAL, SUB, TRUE,
     },
     object::{Closure, CompiledFunction, HashKey, HashPair, Hashable, Object},
 };
@@ -264,18 +264,23 @@ impl<State> VM<State> {
             }
             CLOSURE => {
                 let closure_index = read_word!();
-                let _free_vars = read_byte!();
+                let num_free = read_byte!();
                 if let Object::Function(func) = &constants[closure_index] {
+                    let mut free = Vec::with_capacity(num_free);
+                    for i in 0..num_free {
+                        free.push(stack.stack[stack.sp - num_free + i].clone());
+                    }
+                    stack.sp -= num_free;
                     stack.push(&Object::Closure(Closure {
                         func: func.clone(),
-                        free: vec![],
+                        free,
                     }))?;
                 } else {
                     return Err(Error::CallNonFunction(constants[closure_index].clone()));
                 }
             }
             JUMP_NOT_TRUTHY => {
-                let pos = read_word!(pos);
+                let pos = read_word!();
                 let condition = stack.try_pop()?;
                 if !Self::is_truthy(condition) {
                     frame.ip = pos;
@@ -284,6 +289,9 @@ impl<State> VM<State> {
             }
             GET_GLOBAL | SET_GLOBAL => {
                 Self::global(opcode, read_word!(global_index), globals, stack)?;
+            }
+            GET_FREE => {
+                stack.push(&frame.cl.free[read_byte!(free_index)])?;
             }
             SET_LOCAL | GET_LOCAL | GET_BUILTIN => {
                 Self::local(opcode, read_byte!(local_index), frame.base_pointer, stack)?;
