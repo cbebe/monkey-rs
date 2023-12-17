@@ -81,8 +81,7 @@ mod literal {
         branch::alt,
         bytes::complete::{is_not, tag},
         character::complete::{alpha1, alphanumeric1, char, digit1, multispace0},
-        combinator::{self, recognize},
-        combinator::{cut, map, map_res, opt},
+        combinator::{cut, map, map_res, opt, recognize, verify},
         error::{context, VerboseError},
         multi::{many0_count, separated_list0},
         sequence::preceded,
@@ -136,7 +135,10 @@ mod literal {
 
     fn string_literal(i: &str) -> IResult<ast::Literal> {
         // No escaped characters, classic
-        let (i, s) = quotes(combinator::verify(is_not("\""), |s: &str| !s.is_empty()))(i)?;
+        let (i, s) = alt((
+            quotes(verify(is_not("\""), |s: &str| !s.is_empty())),
+            map(tag("\"\""), |_| ""),
+        ))(i)?;
         Ok((i, Literal::String(s)))
     }
 
@@ -305,12 +307,13 @@ mod tests {
 
     #[test]
     fn test_literals() {
-        let program = parse_program(r#"5; true; false; foo; "hello world";"#, 5);
+        let program = parse_program(r#"5; true; false; foo; "hello world";"";"#, 6);
         assert_literal!(&program[0], Integer(5));
         assert_literal!(&program[1], Boolean(true));
         assert_literal!(&program[2], Boolean(false));
         assert_literal!(&program[3], Identifier("foo"));
         assert_literal!(&program[4], String("hello world"));
+        assert_literal!(&program[5], String(""));
     }
 
     #[test]
@@ -339,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_call_parameter_parsing() {
-        let program = parse_program(r#"add(); add(1); mult(1, 2 * 3, 4 + 5);"#, 3);
+        let program = parse_program(r#"add(); add(1); mult(1, 2 * 3, 4 + 5); len("")"#, 4);
         assert_call!(&program[0], "add", 0, |_| {});
         assert_call!(&program[1], "add", 1, |args: &Vec<ast::Expression>| {
             assert_matches!(&args[0], Literal(Integer(1)));
@@ -348,6 +351,9 @@ mod tests {
             assert_matches!(&args[0], Literal(Integer(1)));
             assert_infix_expr!(&args[1], Integer(2), Mul, Integer(3));
             assert_infix_expr!(&args[2], Integer(4), Add, Integer(5));
+        });
+        assert_call!(&program[3], "len", 1, |args: &Vec<ast::Expression>| {
+            assert_matches!(&args[0], Literal(String("")));
         });
     }
 
