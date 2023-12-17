@@ -245,7 +245,7 @@ impl Compiler {
             num_params,
         });
         let idx = self.add_constant(fn_obj);
-        self.emit(code::Opcode::Constant(idx));
+        self.emit(code::Opcode::Closure(idx, 0));
         Ok(())
     }
 

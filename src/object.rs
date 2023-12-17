@@ -4,6 +4,13 @@ pub struct CompiledFunction {
     pub num_params: u8,
     pub num_locals: u8,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Closure {
+    pub func: CompiledFunction,
+    pub free: Vec<Object>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Object {
     Integer(i64),
@@ -14,10 +21,7 @@ pub enum Object {
     Hash(std::collections::BTreeMap<HashKey, HashPair>),
     Function(CompiledFunction),
     Builtin(u8),
-    Closure {
-        func: CompiledFunction,
-        free: Vec<Object>,
-    },
+    Closure(Closure),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -111,7 +115,7 @@ impl std::fmt::Display for Object {
                 f,
                 "CompiledFunction[{instructions:p}]({num_locals}, {num_params})"
             ),
-            Self::Closure { func, .. } => write!(f, "{:p}", func),
+            Self::Closure(Closure { func, .. }) => write!(f, "{:p}", func),
         }
     }
 }

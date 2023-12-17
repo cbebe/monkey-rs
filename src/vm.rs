@@ -1,14 +1,11 @@
 use crate::{
     builtins,
-    code::{
-        opcodes::{
-            ADD, ARRAY, BANG, CALL, CONSTANT, DIV, EQUAL, FALSE, GET_BUILTIN, GET_GLOBAL,
-            GET_LOCAL, GREATER_THAN, HASH, INDEX, JUMP, JUMP_NOT_TRUTHY, MINUS, MUL, NOT_EQUAL,
-            NULL, POP, RETURN, RETURN_VALUE, SET_GLOBAL, SET_LOCAL, SUB, TRUE,
-        },
-        Instructions,
+    code::opcodes::{
+        ADD, ARRAY, BANG, CALL, CLOSURE, CONSTANT, DIV, EQUAL, FALSE, GET_BUILTIN, GET_GLOBAL,
+        GET_LOCAL, GREATER_THAN, HASH, INDEX, JUMP, JUMP_NOT_TRUTHY, MINUS, MUL, NOT_EQUAL, NULL,
+        POP, RETURN, RETURN_VALUE, SET_GLOBAL, SET_LOCAL, SUB, TRUE,
     },
-    object::{CompiledFunction, HashKey, HashPair, Hashable, Object},
+    object::{Closure, CompiledFunction, HashKey, HashPair, Hashable, Object},
 };
 use byteorder::{BigEndian, ReadBytesExt};
 use std::{cmp, collections::BTreeMap, io::Cursor};
@@ -22,15 +19,15 @@ const FALSE_OBJ: Object = Object::Boolean(false);
 const NULL_OBJ: Object = Object::Null;
 
 struct Frame {
-    pub func: Instructions,
+    pub cl: Closure,
     pub ip: usize,
     pub base_pointer: usize,
 }
 
 impl Frame {
-    pub fn new(func: Instructions, base_pointer: usize) -> Self {
+    pub fn new(cl: Closure, base_pointer: usize) -> Self {
         Self {
-            func,
+            cl,
             ip: 0,
             base_pointer,
         }
@@ -126,7 +123,16 @@ pub enum Error {
 
 impl VM {
     pub fn new(bytecode: crate::compiler::Bytecode) -> Self {
-        let main_frame = Frame::new(bytecode.instructions, 0);
+        let main_fn = CompiledFunction {
+            instructions: bytecode.instructions,
+            num_params: 0,
+            num_locals: 0,
+        };
+        let main_closure = Closure {
+            func: main_fn,
+            free: vec![],
+        };
+        let main_frame = Frame::new(main_closure, 0);
         let mut frames = Vec::with_capacity(MAX_FRAMES);
         frames.push(main_frame);
         Self {
@@ -162,7 +168,7 @@ impl<State> VM<State> {
         let constants = self.constants;
         while {
             let frame = frames.last().ok_or(Error::OutOfFrames)?;
-            frame.ip < frame.func.len()
+            frame.ip < frame.cl.func.instructions.len()
         } {
             if matches!(
                 Self::execute(&mut frames, &mut stack, &mut globals, &constants)?,
@@ -203,7 +209,7 @@ impl<State> VM<State> {
         constants: &[Object],
     ) -> Result<Execute, Error> {
         let frame = frames.last_mut().ok_or(Error::OutOfFrames)?;
-        let mut rdr = Cursor::new(&frame.func);
+        let mut rdr = Cursor::new(&frame.cl.func.instructions);
         rdr.set_position(frame.ip.try_into().unwrap());
         let opcode = match rdr.read_u8() {
             Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
@@ -256,6 +262,18 @@ impl<State> VM<State> {
                     .map(|ip| rdr.set_position(ip))
                     .or(Err(Error::InvalidAddress(frame.ip)))?;
             }
+            CLOSURE => {
+                let closure_index = read_word!();
+                let _free_vars = read_byte!();
+                if let Object::Function(func) = &constants[closure_index] {
+                    stack.push(&Object::Closure(Closure {
+                        func: func.clone(),
+                        free: vec![],
+                    }))?;
+                } else {
+                    return Err(Error::CallNonFunction(constants[closure_index].clone()));
+                }
+            }
             JUMP_NOT_TRUTHY => {
                 let pos = read_word!(pos);
                 let condition = stack.try_pop()?;
@@ -303,21 +321,17 @@ impl<State> VM<State> {
         let fn_idx = stack.sp - 1 - num_args;
         let obj = &stack.stack[fn_idx];
         match obj {
-            Object::Function(CompiledFunction {
-                instructions: func,
-                num_params,
-                num_locals,
-            }) => {
-                if num_args != (*num_params).into() {
+            Object::Closure(c) => {
+                let to_add: usize = c.func.num_locals.into();
+                if num_args != c.func.num_params.into() {
                     return Err(Error::WrongArguments {
-                        want: (*num_params).into(),
+                        want: c.func.num_params.into(),
                         got: num_args,
                     });
                 }
-                let frame = Frame::new(func.clone(), stack.sp - num_args);
+                let frame = Frame::new(c.clone(), stack.sp - num_args);
                 let base_pointer = frame.base_pointer;
                 frames.push(frame);
-                let to_add: usize = (*num_locals).into();
                 stack.sp = base_pointer + to_add;
             }
             Object::Builtin(idx) => {

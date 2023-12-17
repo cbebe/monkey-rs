@@ -6,9 +6,9 @@ mod tests {
         code::{
             self, Instructions,
             Opcode::{
-                self, Add, Array, Bang, Call, Constant, Div, Equal, False, GetBuiltin, GetGlobal,
-                GetLocal, GreaterThan, Hash, Index, Jump, JumpNotTruthy, Minus, Mul, NotEqual,
-                Null, Pop, Return, ReturnValue, SetGlobal, SetLocal, Sub, True,
+                self, Add, Array, Bang, Call, Closure, Constant, Div, Equal, False, GetBuiltin,
+                GetGlobal, GetLocal, GreaterThan, Hash, Index, Jump, JumpNotTruthy, Minus, Mul,
+                NotEqual, Null, Pop, Return, ReturnValue, SetGlobal, SetLocal, Sub, True,
             },
         },
         util::test_utils::{
@@ -311,7 +311,7 @@ mod tests {
                     Int(10),
                     Function(make(vec![Constant(0), Constant(1), Add, ReturnValue])),
                 ],
-                make(vec![Constant(2), Pop]),
+                make(vec![Closure(2, 0), Pop]),
             ),
             (
                 "fn() { 5 + 10 }",
@@ -320,7 +320,7 @@ mod tests {
                     Int(10),
                     Function(make(vec![Constant(0), Constant(1), Add, ReturnValue])),
                 ],
-                make(vec![Constant(2), Pop]),
+                make(vec![Closure(2, 0), Pop]),
             ),
             (
                 "fn() { 1; 2 }",
@@ -329,7 +329,7 @@ mod tests {
                     Int(2),
                     Function(make(vec![Constant(0), Pop, Constant(1), ReturnValue])),
                 ],
-                make(vec![Constant(2), Pop]),
+                make(vec![Closure(2, 0), Pop]),
             ),
         ]);
     }
@@ -339,7 +339,7 @@ mod tests {
         run_compiler_tests(vec![(
             "fn() { }",
             vec![Function(make(vec![Return]))],
-            make(vec![Constant(0), Pop]),
+            make(vec![Closure(0, 0), Pop]),
         )]);
     }
 
@@ -349,18 +349,24 @@ mod tests {
             (
                 "fn() { 24 }();",
                 vec![Int(24), Function(make(vec![Constant(0), ReturnValue]))],
-                make(vec![Constant(1), Call(0), Pop]),
+                make(vec![Closure(1, 0), Call(0), Pop]),
             ),
             (
                 "let noArg = fn() { 24 }; noArg();",
                 vec![Int(24), Function(make(vec![Constant(0), ReturnValue]))],
-                make(vec![Constant(1), SetGlobal(0), GetGlobal(0), Call(0), Pop]),
+                make(vec![
+                    Closure(1, 0),
+                    SetGlobal(0),
+                    GetGlobal(0),
+                    Call(0),
+                    Pop,
+                ]),
             ),
             (
                 "let oneArg = fn(a) { a }; oneArg(24);",
                 vec![Function(make(vec![GetLocal(0), ReturnValue])), Int(24)],
                 make(vec![
-                    Constant(0),
+                    Closure(0, 0),
                     SetGlobal(0),
                     GetGlobal(0),
                     Constant(1),
@@ -384,7 +390,7 @@ mod tests {
                     Int(26),
                 ],
                 make(vec![
-                    Constant(0),
+                    Closure(0, 0),
                     SetGlobal(0),
                     GetGlobal(0),
                     Constant(1),
@@ -403,7 +409,7 @@ mod tests {
             (
                 "let num = 55; fn() { num };",
                 vec![Int(55), Function(make(vec![GetGlobal(0), ReturnValue]))],
-                make(vec![Constant(0), SetGlobal(0), Constant(1), Pop]),
+                make(vec![Constant(0), SetGlobal(0), Closure(1, 0), Pop]),
             ),
             (
                 "fn() { let num = 55; num };",
@@ -416,7 +422,7 @@ mod tests {
                         ReturnValue,
                     ])),
                 ],
-                make(vec![Constant(1), Pop]),
+                make(vec![Closure(1, 0), Pop]),
             ),
             (
                 "fn() { let a = 55; let b = 77; a + b };",
@@ -434,7 +440,7 @@ mod tests {
                         ReturnValue,
                     ])),
                 ],
-                make(vec![Constant(2), Pop]),
+                make(vec![Closure(2, 0), Pop]),
             ),
         ]);
     }
@@ -470,7 +476,7 @@ mod tests {
                     Call(1),
                     ReturnValue,
                 ]))],
-                make(vec![Constant(0), Pop]),
+                make(vec![Closure(0, 0), Pop]),
             ),
         ]);
     }
