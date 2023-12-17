@@ -1,9 +1,9 @@
 use crate::{
     builtins,
     code::opcodes::{
-        ADD, ARRAY, BANG, CALL, CLOSURE, CONSTANT, DIV, EQUAL, FALSE, GET_BUILTIN, GET_FREE,
-        GET_GLOBAL, GET_LOCAL, GREATER_THAN, HASH, INDEX, JUMP, JUMP_NOT_TRUTHY, MINUS, MUL,
-        NOT_EQUAL, NULL, POP, RETURN, RETURN_VALUE, SET_GLOBAL, SET_LOCAL, SUB, TRUE,
+        ADD, ARRAY, BANG, CALL, CLOSURE, CONSTANT, CURRENT_CLOSURE, DIV, EQUAL, FALSE, GET_BUILTIN,
+        GET_FREE, GET_GLOBAL, GET_LOCAL, GREATER_THAN, HASH, INDEX, JUMP, JUMP_NOT_TRUTHY, MINUS,
+        MUL, NOT_EQUAL, NULL, POP, RETURN, RETURN_VALUE, SET_GLOBAL, SET_LOCAL, SUB, TRUE,
     },
     object::{Closure, CompiledFunction, HashKey, HashPair, Hashable, Object},
 };
@@ -278,6 +278,9 @@ impl<State> VM<State> {
                 } else {
                     return Err(Error::CallNonFunction(constants[closure_index].clone()));
                 }
+            }
+            CURRENT_CLOSURE => {
+                stack.push(&Object::Closure(frame.cl.clone()))?;
             }
             JUMP_NOT_TRUTHY => {
                 let pos = read_word!();

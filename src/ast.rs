@@ -107,7 +107,11 @@ pub enum Literal<'a> {
     String(&'a str),
     Array(Vec<Expression<'a>>),
     Hash(std::collections::BTreeMap<Expression<'a>, Expression<'a>>),
-    Function(Vec<&'a str>, BlockStatement<'a>),
+    Function {
+        name: Option<&'a str>,
+        args: Vec<&'a str>,
+        body: BlockStatement<'a>,
+    },
     If(
         Box<Expression<'a>>,
         BlockStatement<'a>,
@@ -135,8 +139,13 @@ impl<'a> std::fmt::Display for Literal<'a> {
                         .join(",\n")
                 )
             }
-            Self::Function(args, body) => {
-                write!(f, "fn ({}) {{\n{body}\n}}", args.join(", "),)
+            Self::Function { name, args, body } => {
+                write!(
+                    f,
+                    "fn {}({}) {{\n{body}\n}}",
+                    name.unwrap_or(""),
+                    args.join(", ")
+                )
             }
             Self::If(condition, consequence, alternative) => {
                 write!(f, "if ({condition}) {{\n{consequence}\n}}",)?;

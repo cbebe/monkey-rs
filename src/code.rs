@@ -34,6 +34,7 @@ pub mod opcodes {
     pub const GET_BUILTIN: u8 = 26;
     pub const CLOSURE: u8 = 27;
     pub const GET_FREE: u8 = 28;
+    pub const CURRENT_CLOSURE: u8 = 29;
 }
 
 #[derive(PartialEq, Eq)]
@@ -140,6 +141,7 @@ pub enum Opcode {
     GetBuiltin(u8),
     Closure(u16, u8),
     GetFree(u8),
+    CurrentClosure,
 }
 
 #[derive(Debug)]
@@ -170,6 +172,7 @@ impl TryFrom<u8> for Opcode {
             opcodes::GET_GLOBAL => Ok(Self::GetGlobal(0)),
             opcodes::SET_GLOBAL => Ok(Self::SetGlobal(0)),
             opcodes::GET_BUILTIN => Ok(Self::GetBuiltin(0)),
+            opcodes::CURRENT_CLOSURE => Ok(Self::CurrentClosure),
             op => Err(InvalidOpcode(op)),
         }
     }
@@ -207,6 +210,7 @@ impl std::fmt::Display for Opcode {
             Self::GetBuiltin(x) => write!(f, "OpGetBuiltin {x}"),
             Self::Closure(x, y) => write!(f, "OpClosure {x} {y}"),
             Self::GetFree(x) => write!(f, "OpGetFree {x}"),
+            Self::CurrentClosure => write!(f, "OpCurrentClosure"),
         }
     }
 }
@@ -243,6 +247,7 @@ impl Opcode {
             Self::GetBuiltin(_) => (opcodes::GET_BUILTIN, 1),
             Self::Closure(..) => (opcodes::CLOSURE, 2),
             Self::GetFree(..) => (opcodes::GET_FREE, 1),
+            Self::CurrentClosure => (opcodes::CURRENT_CLOSURE, 0),
         }
     }
 }
@@ -287,7 +292,8 @@ pub fn make(op: Opcode) -> Instructions {
         | Opcode::Null
         | Opcode::Index
         | Opcode::ReturnValue
-        | Opcode::Return => {}
+        | Opcode::Return
+        | Opcode::CurrentClosure => {}
     }
 
     v

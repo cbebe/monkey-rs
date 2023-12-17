@@ -7,6 +7,7 @@ pub const GLOBAL_SCOPE: SymbolScope = SymbolScope("GLOBAL");
 pub const LOCAL_SCOPE: SymbolScope = SymbolScope("LOCAL");
 pub const BUILTIN_SCOPE: SymbolScope = SymbolScope("BUILTIN");
 pub const FREE_SCOPE: SymbolScope = SymbolScope("FREE");
+pub const FUNCTION_SCOPE: SymbolScope = SymbolScope("FUNCTION");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Symbol {
@@ -64,6 +65,16 @@ impl SymbolTable {
         symbol
     }
 
+    pub fn define_function_name(&mut self, arg: &str) -> Symbol {
+        let symbol = Symbol {
+            name: arg.to_string(),
+            index: 0,
+            scope: FUNCTION_SCOPE,
+        };
+        self.store.insert(arg.to_owned(), symbol.clone());
+        symbol
+    }
+
     pub fn define(&mut self, arg: &str) -> Symbol {
         let symbol = Symbol {
             name: arg.to_string(),
@@ -116,7 +127,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::symbol_table::{
-        Symbol, SymbolTable, BUILTIN_SCOPE, FREE_SCOPE, GLOBAL_SCOPE, LOCAL_SCOPE,
+        Symbol, SymbolTable, BUILTIN_SCOPE, FREE_SCOPE, FUNCTION_SCOPE, GLOBAL_SCOPE, LOCAL_SCOPE,
     };
 
     #[test]
@@ -310,5 +321,28 @@ mod tests {
         test_symbols!(&expected, first_local.borrow_mut());
         let second_local = define_table!(SymbolTable::new(Some(first_local)));
         test_symbols!(&expected, second_local.borrow_mut());
+    }
+
+    #[test]
+    fn test_define_and_resolve_function_name() {
+        let global = define_table!();
+        {
+            let mut g = global.borrow_mut();
+            g.define_function_name("a");
+        }
+        let expected = vec![Symbol::new("a", FUNCTION_SCOPE, 0)];
+        test_symbols!(&expected, global.borrow_mut());
+    }
+
+    #[test]
+    fn test_shadowing_function_name() {
+        let global = define_table!();
+        {
+            let mut g = global.borrow_mut();
+            g.define_function_name("a");
+            g.define("a");
+        }
+        let expected = vec![Symbol::new("a", GLOBAL_SCOPE, 0)];
+        test_symbols!(&expected, global.borrow_mut());
     }
 }

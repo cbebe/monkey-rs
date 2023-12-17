@@ -8,7 +8,7 @@ pub fn program(i: &str) -> IResult<crate::ast::Program> {
 
 mod statement {
     use super::{expr::expr, literal::identifier, wrap::spaced, IResult};
-    use crate::ast::{self, Statement};
+    use crate::ast::{self, Expression, Statement};
     use nom::{
         branch::alt,
         bytes::complete::tag,
@@ -27,12 +27,25 @@ mod statement {
         delimited(terminated(tag(kw), multispace1), inner, opt(char(';')))
     }
 
+    fn let_statement<'a>((ident, expr): (&'a str, Expression<'a>)) -> Statement<'a> {
+        if let Expression::Literal(ast::Literal::Function { args, body, .. }) = expr {
+            let fn_with_name = Expression::Literal(ast::Literal::Function {
+                name: Some(ident),
+                args,
+                body,
+            });
+            Statement::Let(ident, fn_with_name)
+        } else {
+            Statement::Let(ident, expr)
+        }
+    }
+
     pub fn block(i: &str) -> IResult<ast::BlockStatement> {
         map(
             spaced(many0(spaced(alt((
                 map(
                     keyword_stmt("let", separated_pair(identifier, spaced(char('=')), expr)),
-                    |(ident, expr)| Statement::Let(ident, expr),
+                    let_statement,
                 ),
                 map(keyword_stmt("return", expr), Statement::Return),
                 map(terminated(expr, opt(char(';'))), Statement::Expression),
@@ -122,7 +135,14 @@ mod literal {
             ),
         )(i)?;
         let (i, body) = spaced(squirly(block))(i)?;
-        Ok((i, Literal::Function(args, body)))
+        Ok((
+            i,
+            Literal::Function {
+                name: None,
+                args,
+                body,
+            },
+        ))
     }
 
     fn hash_literal(i: &str) -> IResult<ast::Literal> {
@@ -288,10 +308,11 @@ mod tests {
     }
 
     macro_rules! assert_fn {
-        ($statement: expr, $argc: literal, $len: literal, $asserts: expr) => {
-            if let Expression(Literal(Function(args, body))) = $statement {
+        ($statement: expr, $argc: literal, $len: literal, $asserts: expr, $name: expr) => {
+            if let Expression(Literal(Function { name, args, body })) = $statement {
                 assert_eq!(args.len(), $argc);
                 assert_eq!(body.0.len(), $len);
+                assert_eq!(*name, $name);
                 $asserts(args, body);
             } else {
                 panic!("not a function");
@@ -476,20 +497,50 @@ mod tests {
             |args: &Vec<&str>, body: &ast::BlockStatement| {
                 assert_eq!(args, &vec!["x", "y"]);
                 assert_infix!(&body.0[0], Identifier("x"), Add, Identifier("y"));
-            }
+            },
+            None
+        );
+    }
+
+    #[test]
+    fn test_function_literal_with_name() {
+        let program = parse_program("let myFunction = fn() { }", 1);
+        assert_eq!(program.len(), 1);
+        assert_matches!(
+            &program[0],
+            Let(
+                "myFunction",
+                Literal(Function {
+                    name: Some("myFunction"),
+                    args,
+                    body,
+                })
+            ) if args.len() == 0 && body.0.len() == 0
         );
     }
 
     #[test]
     fn test_function_parameter_parsing() {
         let program = parse_program("fn(){}; fn(x){}; fn(x,y,z){};", 3);
-        assert_fn!(&program[0], 0, 0, |_, _| {});
-        assert_fn!(&program[1], 1, 0, |args: &Vec<&str>, _| {
-            assert_eq!(args, &vec!["x"]);
-        });
-        assert_fn!(&program[2], 3, 0, |args: &Vec<&str>, _| {
-            assert_eq!(args, &vec!["x", "y", "z"]);
-        });
+        assert_fn!(&program[0], 0, 0, |_, _| {}, None);
+        assert_fn!(
+            &program[1],
+            1,
+            0,
+            |args: &Vec<&str>, _| {
+                assert_eq!(args, &vec!["x"]);
+            },
+            None
+        );
+        assert_fn!(
+            &program[2],
+            3,
+            0,
+            |args: &Vec<&str>, _| {
+                assert_eq!(args, &vec!["x", "y", "z"]);
+            },
+            None
+        );
     }
 
     #[test]

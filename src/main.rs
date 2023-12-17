@@ -6,6 +6,8 @@ mod builtins;
 mod code;
 mod compiler;
 #[cfg(test)]
+mod compiler_function_tests;
+#[cfg(test)]
 mod compiler_tests;
 mod object;
 mod parser;

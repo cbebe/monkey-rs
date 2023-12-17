@@ -4,7 +4,8 @@ use crate::{
     code::{self, Instructions},
     object::{CompiledFunction, Object},
     symbol_table::{
-        SymbolScope, SymbolTable, BUILTIN_SCOPE, FREE_SCOPE, GLOBAL_SCOPE, LOCAL_SCOPE,
+        SymbolScope, SymbolTable, BUILTIN_SCOPE, FREE_SCOPE, FUNCTION_SCOPE, GLOBAL_SCOPE,
+        LOCAL_SCOPE,
     },
 };
 
@@ -205,10 +206,14 @@ impl Compiler {
 
     fn compile_function(
         &mut self,
+        name: Option<&str>,
         params: &[&str],
         statements: BlockStatement,
     ) -> Result<(), Error> {
         self.enter_scope();
+        if let Some(name) = name {
+            self.symbol_table.borrow_mut().define_function_name(name);
+        }
         for p in params {
             self.symbol_table.borrow_mut().define(p);
         }
@@ -305,6 +310,7 @@ impl Compiler {
             FREE_SCOPE => self.emit(code::Opcode::GetFree(
                 idx.try_into().or(Err(Error::TooManyLocals(idx)))?,
             )),
+            FUNCTION_SCOPE => self.emit(code::Opcode::CurrentClosure),
             e => return Err(Error::UnknownScope(e)),
         };
         Ok(())
@@ -313,8 +319,12 @@ impl Compiler {
     fn compile_literal(&mut self, lit: ast::Literal) -> Result<(), Error> {
         use ast::Literal;
         match lit {
-            Literal::Function(params, statements) => {
-                self.compile_function(&params, statements)?;
+            Literal::Function {
+                name,
+                args: params,
+                body: statements,
+            } => {
+                self.compile_function(name, &params, statements)?;
             }
             Literal::Boolean(bool) => {
                 self.emit(if bool {
