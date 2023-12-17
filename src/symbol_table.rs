@@ -6,6 +6,7 @@ pub struct SymbolScope(&'static str);
 pub const GLOBAL_SCOPE: SymbolScope = SymbolScope("GLOBAL");
 pub const LOCAL_SCOPE: SymbolScope = SymbolScope("LOCAL");
 pub const BUILTIN_SCOPE: SymbolScope = SymbolScope("BUILTIN");
+pub const FREE_SCOPE: SymbolScope = SymbolScope("FREE");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Symbol {
@@ -30,6 +31,7 @@ pub struct SymbolTable {
     pub outer: Option<std::rc::Rc<std::cell::RefCell<SymbolTable>>>,
     store: BTreeMap<String, Symbol>,
     pub num_definitions: u16,
+    pub free_symbols: Vec<Symbol>,
 }
 
 impl Default for SymbolTable {
@@ -44,6 +46,7 @@ impl SymbolTable {
             outer,
             store: BTreeMap::new(),
             num_definitions: 0,
+            free_symbols: vec![],
         }
     }
 
@@ -76,11 +79,35 @@ impl SymbolTable {
         symbol
     }
 
-    pub fn resolve(&self, name: &str) -> Option<Symbol> {
-        self.store.get(name).map_or_else(
-            || self.outer.as_ref().and_then(|o| o.borrow().resolve(name)),
-            |s| Some(s.clone()),
-        )
+    pub fn define_free(&mut self, original: &Symbol) -> Symbol {
+        self.free_symbols.push(original.clone());
+        let symbol = Symbol {
+            name: original.name.to_string(),
+            index: (self.free_symbols.len() - 1).try_into().unwrap(),
+            scope: FREE_SCOPE,
+        };
+        self.store.insert(symbol.name.clone(), symbol.clone());
+        symbol
+    }
+
+    pub fn resolve(&mut self, name: &str) -> Option<Symbol> {
+        if let Some(s) = self.store.get(name) {
+            Some(s.clone())
+        } else if let Some(outer) = self
+            .outer
+            .as_ref()
+            .and_then(|o| o.borrow_mut().resolve(name))
+        {
+            Some(
+                if outer.scope == GLOBAL_SCOPE || outer.scope == BUILTIN_SCOPE {
+                    outer
+                } else {
+                    self.define_free(&outer)
+                },
+            )
+        } else {
+            None
+        }
     }
 }
 
@@ -88,7 +115,9 @@ impl SymbolTable {
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::symbol_table::{Symbol, SymbolTable, BUILTIN_SCOPE, GLOBAL_SCOPE, LOCAL_SCOPE};
+    use crate::symbol_table::{
+        Symbol, SymbolTable, BUILTIN_SCOPE, FREE_SCOPE, GLOBAL_SCOPE, LOCAL_SCOPE,
+    };
 
     #[test]
     fn test_define() {
@@ -117,6 +146,14 @@ mod tests {
         let second_local = SymbolTable::new(Some(first_local)).with_rc();
         test_define!(second_local, "e");
         test_define!(second_local, "f");
+    }
+
+    macro_rules! test_free_symbols {
+        ($expected: expr, $scope: expr) => {
+            for i in 0..$expected.len() {
+                assert_eq!($expected[i], $scope.free_symbols[i]);
+            }
+        };
     }
 
     macro_rules! test_symbols {
@@ -159,7 +196,7 @@ mod tests {
             Symbol::new("a", GLOBAL_SCOPE, 0),
             Symbol::new("b", GLOBAL_SCOPE, 1),
         ];
-        test_symbols!(&expected, global.borrow());
+        test_symbols!(&expected, global.borrow_mut());
     }
 
     #[test]
@@ -172,7 +209,7 @@ mod tests {
             Symbol::new("c", LOCAL_SCOPE, 0),
             Symbol::new("d", LOCAL_SCOPE, 1),
         ];
-        test_symbols!(&expected, local.borrow());
+        test_symbols!(&expected, local.borrow_mut());
     }
 
     #[test]
@@ -186,7 +223,7 @@ mod tests {
                 Symbol::new("c", LOCAL_SCOPE, 0),
                 Symbol::new("d", LOCAL_SCOPE, 1),
             ];
-            test_symbols!(&expected, first_local.borrow());
+            test_symbols!(&expected, first_local.borrow_mut());
         }
         let second_local = define_table!(SymbolTable::new(Some(first_local)), "e", "f");
         {
@@ -196,7 +233,59 @@ mod tests {
                 Symbol::new("e", LOCAL_SCOPE, 0),
                 Symbol::new("f", LOCAL_SCOPE, 1),
             ];
-            test_symbols!(&expected, second_local.borrow());
+            test_symbols!(&expected, second_local.borrow_mut());
+        }
+    }
+
+    #[test]
+    fn test_resolve_free() {
+        let global = define_table!("a", "b");
+        let first_local = define_table!(SymbolTable::new(Some(global)), "c", "d");
+        {
+            let expected = vec![
+                Symbol::new("a", GLOBAL_SCOPE, 0),
+                Symbol::new("b", GLOBAL_SCOPE, 1),
+                Symbol::new("c", LOCAL_SCOPE, 0),
+                Symbol::new("d", LOCAL_SCOPE, 1),
+            ];
+            test_symbols!(&expected, first_local.borrow_mut());
+        }
+        let second_local = define_table!(SymbolTable::new(Some(first_local)), "e", "f");
+        {
+            let expected = vec![
+                Symbol::new("a", GLOBAL_SCOPE, 0),
+                Symbol::new("b", GLOBAL_SCOPE, 1),
+                Symbol::new("c", FREE_SCOPE, 0),
+                Symbol::new("d", FREE_SCOPE, 1),
+                Symbol::new("e", LOCAL_SCOPE, 0),
+                Symbol::new("f", LOCAL_SCOPE, 1),
+            ];
+            let free = vec![
+                Symbol::new("c", LOCAL_SCOPE, 0),
+                Symbol::new("d", LOCAL_SCOPE, 1),
+            ];
+            test_symbols!(&expected, second_local.borrow_mut());
+            test_free_symbols!(&free, second_local.borrow());
+        }
+    }
+
+    #[test]
+    fn test_resolve_unresolvable_free() {
+        let global = define_table!(SymbolTable::default(), "a");
+        let first_local = define_table!(SymbolTable::new(Some(global)), "c");
+        let second_local = define_table!(SymbolTable::new(Some(first_local)), "e", "f");
+        {
+            let expected = vec![
+                Symbol::new("a", GLOBAL_SCOPE, 0),
+                Symbol::new("c", FREE_SCOPE, 0),
+                Symbol::new("e", LOCAL_SCOPE, 0),
+                Symbol::new("f", LOCAL_SCOPE, 1),
+            ];
+            test_symbols!(&expected, second_local.borrow_mut());
+            let unresolvable = vec!["b", "d"];
+            for s in unresolvable {
+                assert_eq!(None, second_local.borrow_mut().resolve(s));
+            }
         }
     }
 
@@ -211,15 +300,15 @@ mod tests {
         ];
         {
             let mut g = global.borrow_mut();
-            for i in 0..expected.len() {
+            for (i, b) in expected.iter().enumerate() {
                 let idx: u16 = i.try_into().unwrap();
-                g.define_builtin(idx, &expected[i].name);
+                g.define_builtin(idx, &b.name);
             }
         }
-        test_symbols!(&expected, global.borrow());
+        test_symbols!(&expected, global.borrow_mut());
         let first_local = define_table!(SymbolTable::new(Some(global)));
-        test_symbols!(&expected, first_local.borrow());
+        test_symbols!(&expected, first_local.borrow_mut());
         let second_local = define_table!(SymbolTable::new(Some(first_local)));
-        test_symbols!(&expected, second_local.borrow());
+        test_symbols!(&expected, second_local.borrow_mut());
     }
 }

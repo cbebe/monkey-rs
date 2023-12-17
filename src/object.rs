@@ -115,7 +115,7 @@ impl std::fmt::Display for Object {
                 f,
                 "CompiledFunction[{instructions:p}]({num_locals}, {num_params})"
             ),
-            Self::Closure(Closure { func, .. }) => write!(f, "{:p}", func),
+            Self::Closure(Closure { func, .. }) => write!(f, "{func:p}"),
         }
     }
 }

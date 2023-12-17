@@ -7,8 +7,8 @@ mod tests {
             self, Instructions,
             Opcode::{
                 self, Add, Array, Bang, Call, Closure, Constant, Div, Equal, False, GetBuiltin,
-                GetGlobal, GetLocal, GreaterThan, Hash, Index, Jump, JumpNotTruthy, Minus, Mul,
-                NotEqual, Null, Pop, Return, ReturnValue, SetGlobal, SetLocal, Sub, True,
+                GetFree, GetGlobal, GetLocal, GreaterThan, Hash, Index, Jump, JumpNotTruthy, Minus,
+                Mul, NotEqual, Null, Pop, Return, ReturnValue, SetGlobal, SetLocal, Sub, True,
             },
         },
         util::test_utils::{
@@ -477,6 +477,96 @@ mod tests {
                     ReturnValue,
                 ]))],
                 make(vec![Closure(0, 0), Pop]),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn test_closures() {
+        run_compiler_tests(vec![
+            (
+                "fn(a) { fn(b) { a + b } }",
+                vec![
+                    Function(make(vec![GetFree(0), GetLocal(0), Add, ReturnValue])),
+                    Function(make(vec![GetLocal(0), Closure(0, 1), ReturnValue])),
+                ],
+                make(vec![Closure(1, 0), Pop]),
+            ),
+            (
+                r#"
+                fn(a) {
+                    fn(b) {
+                        fn(c) {
+                            a + b + c
+                        }
+                    }
+                }"#,
+                vec![
+                    Function(make(vec![
+                        GetFree(0),
+                        GetFree(1),
+                        Add,
+                        GetLocal(0),
+                        Add,
+                        ReturnValue,
+                    ])),
+                    Function(make(vec![
+                        GetFree(0),
+                        GetLocal(0),
+                        Closure(0, 2),
+                        ReturnValue,
+                    ])),
+                    Function(make(vec![GetLocal(0), Closure(1, 1), ReturnValue])),
+                ],
+                make(vec![Closure(2, 0), Pop]),
+            ),
+            (
+                r#"
+                let global = 55;
+                fn() {
+                    let a = 66;
+                    fn() {
+                        let b = 77;
+                        fn() {
+                            let c = 88;
+                            global + a + b + c;
+                        }
+                    }
+                }"#,
+                vec![
+                    Int(55),
+                    Int(66),
+                    Int(77),
+                    Int(88),
+                    Function(make(vec![
+                        Constant(3),
+                        SetLocal(0),
+                        GetGlobal(0),
+                        GetFree(0),
+                        Add,
+                        GetFree(1),
+                        Add,
+                        GetLocal(0),
+                        Add,
+                        ReturnValue,
+                    ])),
+                    Function(make(vec![
+                        Constant(2),
+                        SetLocal(0),
+                        GetFree(0),
+                        GetLocal(0),
+                        Closure(4, 2),
+                        ReturnValue,
+                    ])),
+                    Function(make(vec![
+                        Constant(1),
+                        SetLocal(0),
+                        GetLocal(0),
+                        Closure(5, 1),
+                        ReturnValue,
+                    ])),
+                ],
+                make(vec![Constant(0), SetGlobal(0), Closure(6, 0), Pop]),
             ),
         ]);
     }

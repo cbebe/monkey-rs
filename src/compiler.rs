@@ -3,7 +3,9 @@ use crate::{
     builtins,
     code::{self, Instructions},
     object::{CompiledFunction, Object},
-    symbol_table::{SymbolScope, SymbolTable, BUILTIN_SCOPE, GLOBAL_SCOPE, LOCAL_SCOPE},
+    symbol_table::{
+        SymbolScope, SymbolTable, BUILTIN_SCOPE, FREE_SCOPE, GLOBAL_SCOPE, LOCAL_SCOPE,
+    },
 };
 
 #[derive(Debug)]
@@ -234,18 +236,23 @@ impl Compiler {
         let num_locals: u8 = num_definitions
             .try_into()
             .or(Err(Error::TooManyLocals(num_definitions)))?;
+
+        let free_symbols = &self.symbol_table.borrow().free_symbols.clone();
         let instructions = self.leave_scope();
+        for i in free_symbols {
+            self.load_symbol(i)?;
+        }
+
         let num_params: u8 = params
             .len()
             .try_into()
             .or(Err(Error::TooManyArgs(params.len())))?;
-        let fn_obj = Object::Function(CompiledFunction {
-            instructions,
-            num_locals,
-            num_params,
-        });
+        let fn_obj = Object::Function(CompiledFunction { instructions, num_params, num_locals });
         let idx = self.add_constant(fn_obj);
-        self.emit(code::Opcode::Closure(idx, 0));
+        self.emit(code::Opcode::Closure(
+            idx,
+            free_symbols.len().try_into().unwrap(),
+        ));
         Ok(())
     }
 
@@ -283,6 +290,22 @@ impl Compiler {
         Ok(())
     }
 
+    fn load_symbol(&mut self, s: &crate::symbol_table::Symbol) -> Result<(), Error> {
+        let idx = s.index;
+        match s.scope {
+            GLOBAL_SCOPE => self.emit(code::Opcode::GetGlobal(idx)),
+            LOCAL_SCOPE => self.emit(code::Opcode::GetLocal(
+                idx.try_into().or(Err(Error::TooManyLocals(idx)))?,
+            )),
+            BUILTIN_SCOPE => self.emit(code::Opcode::GetBuiltin(idx.try_into().unwrap())),
+            FREE_SCOPE => self.emit(code::Opcode::GetFree(
+                idx.try_into().or(Err(Error::TooManyLocals(idx)))?,
+            )),
+            e => return Err(Error::UnknownScope(e)),
+        };
+        Ok(())
+    }
+
     fn compile_literal(&mut self, lit: ast::Literal) -> Result<(), Error> {
         use ast::Literal;
         match lit {
@@ -310,19 +333,7 @@ impl Compiler {
                     .borrow_mut()
                     .resolve(x)
                     .ok_or_else(|| Error::UndefinedVariable(x.to_owned()))?;
-                match symbol.scope {
-                    GLOBAL_SCOPE => self.emit(code::Opcode::GetGlobal(symbol.index)),
-                    LOCAL_SCOPE => self.emit(code::Opcode::GetLocal(
-                        symbol
-                            .index
-                            .try_into()
-                            .or(Err(Error::TooManyLocals(symbol.index)))?,
-                    )),
-                    BUILTIN_SCOPE => {
-                        self.emit(code::Opcode::GetBuiltin(symbol.index.try_into().unwrap()))
-                    }
-                    e => return Err(Error::UnknownScope(e)),
-                };
+                self.load_symbol(&symbol)?;
             }
             Literal::String(x) => {
                 let str_obj = Object::String(x.to_string());

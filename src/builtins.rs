@@ -34,6 +34,8 @@ fn len(args: &[Object]) -> Result {
     }
 }
 
+// Need to follow the same signature as the others
+#[allow(clippy::unnecessary_wraps)]
 fn puts(args: &[Object]) -> Result {
     for i in args.iter() {
         println!("{i}");

@@ -25,7 +25,7 @@ struct Frame {
 }
 
 impl Frame {
-    pub fn new(cl: Closure, base_pointer: usize) -> Self {
+    pub const fn new(cl: Closure, base_pointer: usize) -> Self {
         Self {
             cl,
             ip: 0,

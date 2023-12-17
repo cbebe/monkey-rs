@@ -33,6 +33,7 @@ pub mod opcodes {
     pub const SET_LOCAL: u8 = 25;
     pub const GET_BUILTIN: u8 = 26;
     pub const CLOSURE: u8 = 27;
+    pub const GET_FREE: u8 = 28;
 }
 
 #[derive(PartialEq, Eq)]
@@ -138,6 +139,7 @@ pub enum Opcode {
     SetLocal(u8),
     GetBuiltin(u8),
     Closure(u16, u8),
+    GetFree(u8),
 }
 
 #[derive(Debug)]
@@ -204,6 +206,7 @@ impl std::fmt::Display for Opcode {
             Self::SetLocal(x) => write!(f, "OpSetLocal {x}"),
             Self::GetBuiltin(x) => write!(f, "OpGetBuiltin {x}"),
             Self::Closure(x, y) => write!(f, "OpClosure {x} {y}"),
+            Self::GetFree(x) => write!(f, "OpGetFree {x}"),
         }
     }
 }
@@ -239,6 +242,7 @@ impl Opcode {
             Self::SetLocal(_) => (opcodes::SET_LOCAL, 1),
             Self::GetBuiltin(_) => (opcodes::GET_BUILTIN, 1),
             Self::Closure(..) => (opcodes::CLOSURE, 2),
+            Self::GetFree(..) => (opcodes::GET_FREE, 1),
         }
     }
 }
@@ -248,7 +252,11 @@ pub fn make(op: Opcode) -> Instructions {
     let mut v = Vec::with_capacity(op_len + 1);
     v.push(opcode);
     match op {
-        Opcode::GetLocal(x) | Opcode::SetLocal(x) | Opcode::Call(x) | Opcode::GetBuiltin(x) => {
+        Opcode::GetLocal(x)
+        | Opcode::SetLocal(x)
+        | Opcode::Call(x)
+        | Opcode::GetBuiltin(x)
+        | Opcode::GetFree(x) => {
             v.write_u8(x).unwrap();
         }
         Opcode::Constant(x)
